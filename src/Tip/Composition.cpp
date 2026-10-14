@@ -248,7 +248,7 @@ void TextService::OpenCandidates(ITfContext* context, TfEditCookie ec) {
       rc = {pt.x, pt.y, pt.x, pt.y};
     }
   }
-  candidateWindow_->Show(std::move(items), rc);
+  candidateWindow_->Show(std::move(items), rc, RequestCandidateProbabilities());
 }
 
 void TextService::SelectCandidate(ITfContext* context, TfEditCookie ec, size_t index) {
@@ -285,6 +285,7 @@ void TextService::OpenEmojiPanel() {
 void TextService::CloseCandidates() {
   if (candidateWindow_) candidateWindow_->Hide();
   candidates_.clear();
+  candidateRequestId_ = 0;
 }
 
 }  // namespace llaime

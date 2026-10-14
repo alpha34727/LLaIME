@@ -17,6 +17,8 @@ namespace llaime {
 //  - list: one numbered column of 9, page dots on the right, ▲▼ paging in the footer;
 //  - expanded: 4 columns of 9 filled column by column (only the first is numbered), page dots
 //    centered in the footer with ◀▶ paging.
+// Each candidate can carry the language model's probability that it is the intended one: a bar
+// under the text, and the percentage beside the selected candidate.
 // The footer also has the expand/collapse button and the emoji button. Never takes focus.
 class CandidateWindow {
  public:
@@ -37,7 +39,10 @@ class CandidateWindow {
   static void UnregisterClass();
 
   // `anchor` is the screen rectangle of the text the candidates apply to (physical pixels).
-  void Show(std::vector<std::wstring> items, const RECT& anchor);
+  // `withProbabilities` reserves room for the percentages, which arrive later.
+  void Show(std::vector<std::wstring> items, const RECT& anchor, bool withProbabilities = false);
+  // One value in [0, 1] per item (or fewer: the rest have none); negative means unknown.
+  void SetProbabilities(std::vector<double> probabilities);
   void Hide();
   bool IsVisible() const { return hwnd_ && IsWindowVisible(hwnd_); }
 
@@ -46,8 +51,9 @@ class CandidateWindow {
   bool Expanded() const { return expanded_; }
   void SetExpanded(bool expanded);
 
-  // Up/Down: previous/next candidate. Left/Right: previous/next column when expanded, page in
-  // the list layout.
+  // Up/Down: previous/next candidate. Right expands the list, then moves column by column and
+  // wraps to the first; Left moves back a column and collapses from the first (in the list
+  // layout it pages back).
   void MoveSelection(int delta);
   void MoveColumn(int delta);
   void MovePage(int delta);
@@ -66,6 +72,11 @@ class CandidateWindow {
   void UpdateLayout(const RECT& anchor);
   void Paint();
   void PaintFooter(ID2D1SolidColorBrush* brush, float width, float height);
+  void PaintProbability(ID2D1SolidColorBrush* brush, size_t index, float textX, float textRight,
+                        const D2D1_RECT_F& cell);
+  double ProbabilityOf(size_t index) const {
+    return index < probabilities_.size() ? probabilities_[index] : -1;
+  }
   float Scale() const { return dpi_ / 96.0f; }
   size_t Columns() const { return expanded_ ? kExpandedColumns : 1; }
   size_t PageSize() const { return kRows * Columns(); }
@@ -82,6 +93,8 @@ class CandidateWindow {
   UINT dpi_ = 96;
   Theme theme_;
   std::vector<std::wstring> items_;
+  std::vector<double> probabilities_;
+  bool withProbabilities_ = false;
   size_t selection_ = 0;
   bool expanded_ = false;
   int hoverItem_ = -1;
@@ -96,6 +109,7 @@ class CandidateWindow {
   Microsoft::WRL::ComPtr<IDWriteTextFormat> textFormat_;
   Microsoft::WRL::ComPtr<IDWriteTextFormat> numberFormat_;
   Microsoft::WRL::ComPtr<IDWriteTextFormat> iconFormat_;
+  Microsoft::WRL::ComPtr<IDWriteTextFormat> percentFormat_;
   UINT formatDpi_ = 0;
 };
 

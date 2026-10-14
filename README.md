@@ -43,3 +43,18 @@ cd tools
 uv sync
 uv run python make_icon.py ..\src\Tip\res\bopomofo.ico
 ```
+
+## 詞庫
+
+```powershell
+cd tools
+uv run python prepare_lexicon.py   # 下載資料來源並產生 data\build\lexicon.bin
+```
+
+| 來源 | 授權 | 用途 |
+|---|---|---|
+| [McBopomofo](https://github.com/openvanilla/McBopomofo) | MIT | 主要詞庫與詞頻 |
+| [libchewing-data](https://github.com/chewing/libchewing-data) | LGPL-2.1-or-later | 補充詞（附詞頻） |
+| 教育部《重編國語辭典修訂本》 | CC BY-ND 3.0 TW | 補充詞條與讀音 |
+
+補充詞只收 McBopomofo 沒有的詞，原有的讀音與分數不變。教育部辭典採「禁止改作」授權，本專案不附原始檔，由腳本自行下載；若要散布含這些詞條的 `lexicon.bin`，需先確認是否符合授權條款。

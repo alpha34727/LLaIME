@@ -90,7 +90,8 @@ void PreviewCandidates(const std::wstring& dir, const wchar_t* suffix) {
       L"鎰",   L"驛",   L"悒",   L"熠",   L"👌",   L"😀", L"👍", L"🙂", L"役", L"憶"};
   for (bool expanded : {false, true}) {
     window.SetExpanded(expanded);
-    window.Show(items, RECT{300, 300, 320, 320});
+    window.Show(items, RECT{300, 300, 320, 320}, true);
+    window.SetProbabilities({0.80, 0.12, 0.04, 0.02, 0.01, 0.004, 0.003, 0.001});
     Pump(400);
     HWND hwnd = FindWindowW(L"LLaIME.CandidateWindow", nullptr);
     std::wstring name = expanded ? L"/candidates_expanded_" : L"/candidates_";

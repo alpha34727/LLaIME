@@ -36,6 +36,11 @@ constexpr float kDotSpacing = 10;
 constexpr float kArrowSize = 8;
 constexpr float kButtonWidth = 32;
 constexpr size_t kMaxDots = 5;
+constexpr float kPercentWidth = 36;    // room for "100%" beside the selected candidate
+constexpr float kPercentFontSize = 12;
+constexpr float kBarHeight = 2;
+constexpr float kBarBottom = 5;        // bar baseline above the cell bottom
+constexpr float kBarOpacity = 0.85f;
 
 // Segoe Fluent Icons glyphs used by Microsoft Bopomofo's footer.
 constexpr wchar_t kGlyphExpand[] = L"\xE89F";
@@ -93,6 +98,7 @@ bool CandidateWindow::EnsureDeviceResources() {
     textFormat_.Reset();
     numberFormat_.Reset();
     iconFormat_.Reset();
+    percentFormat_.Reset();
     DWriteFactory()->CreateTextFormat(L"Microsoft JhengHei UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
                                       DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
                                       kFontSize, L"zh-TW", &textFormat_);
@@ -103,12 +109,18 @@ bool CandidateWindow::EnsureDeviceResources() {
     DWriteFactory()->CreateTextFormat(L"Segoe Fluent Icons", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
                                       DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
                                       kIconSize, L"en-US", &iconFormat_);
-    if (!textFormat_ || !numberFormat_ || !iconFormat_) return false;
-    for (IDWriteTextFormat* f : {textFormat_.Get(), numberFormat_.Get(), iconFormat_.Get()}) {
+    DWriteFactory()->CreateTextFormat(L"Segoe UI Variable Text", nullptr,
+                                      DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+                                      DWRITE_FONT_STRETCH_NORMAL, kPercentFontSize, L"en-US",
+                                      &percentFormat_);
+    if (!textFormat_ || !numberFormat_ || !iconFormat_ || !percentFormat_) return false;
+    for (IDWriteTextFormat* f :
+         {textFormat_.Get(), numberFormat_.Get(), iconFormat_.Get(), percentFormat_.Get()}) {
       f->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
       f->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
     }
     iconFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    percentFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
     formatDpi_ = dpi_;
   }
   if (!target_) {
@@ -133,12 +145,15 @@ bool CandidateWindow::EnsureDeviceResources() {
 
 void CandidateWindow::DiscardDeviceResources() { target_.Reset(); }
 
-void CandidateWindow::Show(std::vector<std::wstring> items, const RECT& anchor) {
+void CandidateWindow::Show(std::vector<std::wstring> items, const RECT& anchor,
+                           bool withProbabilities) {
   if (items.empty() || !EnsureWindow()) {
     Hide();
     return;
   }
   items_ = std::move(items);
+  probabilities_.clear();
+  withProbabilities_ = withProbabilities;
   selection_ = 0;
   hoverItem_ = -1;
   hoverButton_ = FooterButton::None;
@@ -152,6 +167,13 @@ void CandidateWindow::Show(std::vector<std::wstring> items, const RECT& anchor) 
 void CandidateWindow::Hide() {
   if (hwnd_) ShowWindow(hwnd_, SW_HIDE);
   items_.clear();
+  probabilities_.clear();
+}
+
+void CandidateWindow::SetProbabilities(std::vector<double> probabilities) {
+  if (items_.empty()) return;
+  probabilities_ = std::move(probabilities);
+  InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 void CandidateWindow::SetExpanded(bool expanded) {
@@ -178,6 +200,7 @@ void CandidateWindow::UpdateLayout(const RECT& anchor) {
     maxText = std::max(maxText, MeasureTextWidth(item, textFormat_.Get()));
   }
   const size_t rows = std::min(kRows, expanded_ ? kRows : items_.size());
+  if (withProbabilities_) maxText += kPercentWidth;
   if (expanded_) {
     firstColumnWidth_ = kTextX - kInset + maxText + 20;
     columnWidth_ = std::max(kMinColumnWidth, maxText + 2 * kCellTextPad);
@@ -215,11 +238,34 @@ void CandidateWindow::MoveSelection(int delta) {
 }
 
 void CandidateWindow::MoveColumn(int delta) {
+  if (items_.empty()) return;
   if (!expanded_) {
-    MovePage(delta);
+    // As in Microsoft Bopomofo: Right expands the list; Left keeps paging back.
+    if (delta > 0) {
+      SetExpanded(true);
+    } else {
+      MovePage(delta);
+    }
     return;
   }
-  MoveSelection(delta * static_cast<int>(kRows));
+  const size_t start = PageStart();
+  const size_t offset = selection_ - start;
+  const size_t column = offset / kRows;
+  const size_t row = offset % kRows;
+  const size_t pageItems = std::min(items_.size() - start, PageSize());
+  const size_t lastColumn = (pageItems - 1) / kRows;
+  if (delta < 0) {
+    if (column == 0) {
+      SetExpanded(false);  // Left from the first column collapses the list
+      return;
+    }
+    selection_ -= kRows;
+  } else {
+    // Right from the last column wraps to the first.
+    const size_t next = column == lastColumn ? 0 : column + 1;
+    selection_ = start + std::min(next * kRows + row, pageItems - 1);
+  }
+  InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 void CandidateWindow::MovePage(int delta) {
@@ -320,6 +366,8 @@ void CandidateWindow::Paint() {
     brush->SetColor(theme_.text);
     DrawColorText(target_.Get(), items_[i], textFormat_.Get(),
                   D2D1::RectF(textX, cell.top, textRight, cell.bottom), brush.Get());
+    PaintProbability(brush.Get(), i, textX, expanded_ ? textRight - kCellTextPad : textRight,
+                     cell);
   }
 
   // List layout: page dots stacked in the right column, centered on the list.
@@ -339,6 +387,37 @@ void CandidateWindow::Paint() {
 
   PaintFooter(brush.Get(), size.width, size.height);
   if (target_->EndDraw() == D2DERR_RECREATE_TARGET) DiscardDeviceResources();
+}
+
+void CandidateWindow::PaintProbability(ID2D1SolidColorBrush* brush, size_t index, float textX,
+                                       float textRight, const D2D1_RECT_F& cell) {
+  const double p = ProbabilityOf(index);
+  if (p < 0) return;
+  // The bar's full length (100%) is the text area left of the percentage.
+  const float full = std::max(0.0f, textRight - kPercentWidth - textX);
+  const float length = static_cast<float>(std::clamp(p, 0.0, 1.0)) * full;
+  if (length >= 0.5f) {
+    const float bottom = cell.bottom - kBarBottom;
+    brush->SetColor(theme_.accent);
+    brush->SetOpacity(kBarOpacity);
+    target_->FillRoundedRectangle(
+        D2D1::RoundedRect(D2D1::RectF(textX, bottom - kBarHeight, textX + length, bottom),
+                          kBarHeight / 2, kBarHeight / 2),
+        brush);
+    brush->SetOpacity(1.0f);
+  }
+  if (index != selection_) return;
+  wchar_t text[8];
+  const int percent = static_cast<int>(std::lround(p * 100));
+  if (percent < 1) {
+    wcscpy_s(text, L"<1%");
+  } else {
+    swprintf_s(text, L"%d%%", percent);
+  }
+  brush->SetColor(theme_.secondaryText);
+  target_->DrawText(text, static_cast<UINT32>(wcslen(text)), percentFormat_.Get(),
+                    D2D1::RectF(textRight - kPercentWidth, cell.top, textRight, cell.bottom),
+                    brush);
 }
 
 void CandidateWindow::PaintFooter(ID2D1SolidColorBrush* brush, float width, float height) {

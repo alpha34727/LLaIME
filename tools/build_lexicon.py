@@ -1,4 +1,4 @@
-"""Compile a McBopomofo-format data.txt into LLaIME's memory-mappable lexicon.bin.
+"""Compile McBopomofo-format data files into LLaIME's memory-mappable lexicon.bin.
 
 Input lines: ``<key> <value> <log10 score>``. Bopomofo keys are syllables joined by ``-``;
 keys starting with ``_`` (punctuation, letters, ...) go to the named table. MACRO@ values are
@@ -66,15 +66,16 @@ def align4(buf: bytearray) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("input", type=Path)
-    parser.add_argument("output", type=Path)
+    parser.add_argument("inputs", type=Path, nargs="+")
+    parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
     syllable_keys: dict[tuple[int, ...], dict[str, float]] = defaultdict(dict)
     named_keys: dict[str, dict[str, float]] = defaultdict(dict)
     skipped = 0
 
-    for line in args.input.read_text(encoding="utf-8").splitlines():
+    lines = [line for path in args.inputs for line in path.read_text(encoding="utf-8").splitlines()]
+    for line in lines:
         if not line or line.startswith("#"):
             continue
         parts = line.split(" ")

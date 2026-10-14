@@ -38,8 +38,8 @@ struct KeyAction {
     CandidateDown,
     CandidatePageUp,
     CandidatePageDown,
-    CandidateLeft,    // previous column (expanded) or page (list)
-    CandidateRight,
+    CandidateLeft,    // previous column or collapse (expanded), previous page (list)
+    CandidateRight,   // expand (list), next column wrapping to the first (expanded)
     CandidateToggleExpanded,
     CandidateAccept,
     CandidateClose,
@@ -126,7 +126,11 @@ class TextService final : public ITfTextInputProcessorEx,
   // Language-model reranking (Ranking.cpp)
   void ReadContextBefore(ITfContext* context, TfEditCookie ec, ITfRange* compositionRange);
   void RequestRanking();
+  // Scores the sentence each open candidate would produce; the results become the
+  // probabilities shown in the candidate window. Returns false if no request was sent.
+  bool RequestCandidateProbabilities();
   void OnRankResponse(const protocol::RankResponse& response);
+  void OnCandidateProbabilities(const protocol::RankResponse& response);
 
   // Key handling (KeyEventSink.cpp)
   KeyAction ClassifyKey(WPARAM vk) const;
@@ -183,6 +187,11 @@ class TextService final : public ITfTextInputProcessorEx,
   uint32_t lastRequestId_ = 0;
   uint64_t rankedGeneration_ = 0;
   std::vector<Sentence> rankedSentences_;
+  // Candidate probabilities: the distinct sentences sent, and for each candidate the index of
+  // its sentence (-1 past the request's limit).
+  uint32_t candidateRequestId_ = 0;
+  std::vector<Sentence> candidateSentences_;
+  std::vector<int> candidateSentenceIndex_;
   std::wstring contextText_;  // document text before the composition
 
   Microsoft::WRL::ComPtr<ITfComposition> composition_;
