@@ -170,8 +170,20 @@ void CandidateWindow::Hide() {
   probabilities_.clear();
 }
 
-void CandidateWindow::SetProbabilities(std::vector<double> probabilities) {
+void CandidateWindow::SetProbabilities(std::vector<double> probabilities,
+                                       const std::vector<size_t>& order) {
   if (items_.empty()) return;
+  if (order.size() == items_.size()) {
+    std::vector<std::wstring> items(items_.size());
+    size_t selection = 0;
+    for (size_t i = 0; i < order.size(); ++i) {
+      items[i] = std::move(items_[order[i]]);
+      if (order[i] == selection_) selection = i;
+    }
+    items_ = std::move(items);
+    if (selection_ != 0) selection_ = selection;
+    hoverItem_ = -1;
+  }
   probabilities_ = std::move(probabilities);
   InvalidateRect(hwnd_, nullptr, FALSE);
 }

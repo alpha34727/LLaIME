@@ -42,7 +42,10 @@ class CandidateWindow {
   // `withProbabilities` reserves room for the percentages, which arrive later.
   void Show(std::vector<std::wstring> items, const RECT& anchor, bool withProbabilities = false);
   // One value in [0, 1] per item (or fewer: the rest have none); negative means unknown.
-  void SetProbabilities(std::vector<double> probabilities);
+  // A non-empty `order` also reorders the list: position i shows the item that was at
+  // order[i], and `probabilities` are in the new order. A selection the user moved stays on
+  // its item; the default first-row selection stays on the first row.
+  void SetProbabilities(std::vector<double> probabilities, const std::vector<size_t>& order = {});
   void Hide();
   bool IsVisible() const { return hwnd_ && IsWindowVisible(hwnd_); }
 

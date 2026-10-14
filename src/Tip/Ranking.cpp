@@ -3,7 +3,8 @@
 // buffer state, the best combined conversion replaces the displayed one.
 //
 // While the candidate list is open, each candidate is scored the same way through the sentence
-// it would produce, and the softmax of those scores is shown as its probability.
+// it would produce, and the softmax of those scores is shown as its probability; candidates of
+// 1% or more are then listed by probability.
 #include <algorithm>
 #include <cmath>
 
@@ -24,6 +25,8 @@ constexpr size_t kCandidates = 16;  // the engine scores at most this many per r
 // prefer. Tuned with LLaIME.Eval on tests/eval (Common Voice dev and taiwan_usage).
 constexpr double kLexiconWeight = 0.75;
 constexpr double kVariantPenalty = 4.0;
+// Open candidates at or above this probability are listed by probability.
+constexpr double kRankedProbability = 0.01;
 // Characters before the composition given to the model as context.
 constexpr LONG kContextChars = 32;
 
@@ -122,7 +125,31 @@ void TextService::OnCandidateProbabilities(const protocol::RankResponse& respons
     // Candidates past what one request scores stay unknown (no bar).
     if (index >= 0) probabilities[i] = scores[index] / sum;
   }
-  candidateWindow_->SetProbabilities(std::move(probabilities));
+
+  // Candidates the model gives at least kRankedProbability go first, most likely first (ties
+  // keep the lexicon order, longer phrases first); the rest keep the lexicon order after them.
+  std::vector<size_t> order(candidates_.size());
+  for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+  std::stable_partition(order.begin(), order.end(),
+                        [&](size_t i) { return probabilities[i] >= kRankedProbability; });
+  const auto ranked = std::find_if(order.begin(), order.end(), [&](size_t i) {
+    return probabilities[i] < kRankedProbability;
+  });
+  std::stable_sort(order.begin(), ranked,
+                   [&](size_t a, size_t b) { return probabilities[a] > probabilities[b]; });
+
+  std::vector<Candidate> candidates(candidates_.size());
+  std::vector<int> sentenceIndex(candidates_.size());
+  std::vector<double> reordered(candidates_.size());
+  for (size_t i = 0; i < order.size(); ++i) {
+    candidates[i] = std::move(candidates_[order[i]]);
+    sentenceIndex[i] = candidateSentenceIndex_[order[i]];
+    reordered[i] = probabilities[order[i]];
+  }
+  candidates_ = std::move(candidates);
+  candidateSentenceIndex_ = std::move(sentenceIndex);
+  candidateRequestId_ = 0;  // applied once
+  candidateWindow_->SetProbabilities(std::move(reordered), order);
 }
 
 void TextService::OnRankResponse(const protocol::RankResponse& response) {
