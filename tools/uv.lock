@@ -422,6 +422,22 @@ wheels = [
 ]
 
 [[package]]
+name = "laya"
+version = "0.4.7"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "huggingface-hub" },
+    { name = "numpy" },
+    { name = "safetensors" },
+    { name = "torch" },
+    { name = "transformers" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ed/ba/477174d38f2acc252cb1414499369b2127cf74784a5ffaf51e8743400c82/laya-0.4.7.tar.gz", hash = "sha256:c3f567f21ce9860eb063c67b35316d5498881e6856f6d58f2b05ce4311e8b2c9", size = 1194323, upload-time = "2026-10-14T05:27:58.872Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3e/6e/4034dff73797ebe6ed7f0ae55bc85d866a6daa4778fdcad25a83827cc353/laya-0.4.7-py3-none-any.whl", hash = "sha256:c16f6e8b124baefa0d3d08a4eeb72c72ac54b06281155f383f7c8b7f37b91b50", size = 400060, upload-time = "2026-10-14T05:27:56.774Z" },
+]
+
+[[package]]
 name = "llaime-tools"
 version = "0.1.0"
 source = { virtual = "." }
@@ -429,6 +445,7 @@ dependencies = [
     { name = "accelerate" },
     { name = "datasets" },
     { name = "fonttools" },
+    { name = "laya" },
     { name = "numpy" },
     { name = "onnx" },
     { name = "onnxruntime-gpu" },
@@ -446,6 +463,7 @@ requires-dist = [
     { name = "accelerate" },
     { name = "datasets" },
     { name = "fonttools", specifier = ">=4.67.0" },
+    { name = "laya", specifier = ">=0.4.7" },
     { name = "numpy" },
     { name = "onnx" },
     { name = "onnxruntime-gpu" },
