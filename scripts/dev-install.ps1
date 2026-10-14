@@ -6,7 +6,7 @@
   registers them with regsvr32. A DLL that is loaded by running apps cannot be overwritten,
   so the old file is renamed aside first. Self-elevates via UAC.
 .PARAMETER Configuration
-  Debug or Release.
+  Debug or Release. Defaults to whichever x64 TIP build is newer.
 .PARAMETER Model
   GGUF file under models\ that the engine loads (written to %LOCALAPPDATA%\LLaIME\engine.ini
   unless that file already exists).
@@ -14,12 +14,22 @@
   Unregister and remove the installed DLLs.
 #>
 param(
-  [ValidateSet('Debug', 'Release')] [string] $Configuration = 'Debug',
+  [ValidateSet('', 'Debug', 'Release')] [string] $Configuration = '',
   [string] $Model = 'Qwen3.5-2B-Q4_K_M.gguf',
   [switch] $Uninstall
 )
 
 $ErrorActionPreference = 'Stop'
+
+if (-not $Configuration) {
+  $root = Split-Path -Parent $PSScriptRoot
+  $Configuration = 'Debug', 'Release' |
+    Where-Object { Test-Path "$root/build/x64/src/Tip/$_/LLaIME.Tip.dll" } |
+    Sort-Object { (Get-Item "$root/build/x64/src/Tip/$_/LLaIME.Tip.dll").LastWriteTime } |
+    Select-Object -Last 1
+  if (-not $Configuration) { throw 'No TIP build found under build/x64/src/Tip' }
+  Write-Host "Installing the $Configuration build"
+}
 
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
