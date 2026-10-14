@@ -77,12 +77,16 @@ def main() -> None:
     parser.add_argument("--rank", type=int, default=16)
     parser.add_argument("--max-tokens", type=int, default=256)
     parser.add_argument("--seed", type=int, default=20261015)
+    parser.add_argument("--memory-fraction", type=float, default=0.85,
+                        help="cap on dedicated GPU memory; beyond it Windows would spill into "
+                             "shared system memory and training slows several-fold")
     args = parser.parse_args()
 
     from peft import LoraConfig, get_peft_model
     from transformers import AutoModelForImageTextToText, AutoTokenizer
 
     torch.manual_seed(args.seed)
+    torch.cuda.set_per_process_memory_fraction(args.memory_fraction)
     tok = AutoTokenizer.from_pretrained(args.base)
     texts = [json.loads(line)["text"] for line in args.corpus.read_text(encoding="utf-8").splitlines()]
     eval_texts, train_texts = texts[:args.eval_texts], texts[args.eval_texts:]
@@ -141,7 +145,8 @@ def main() -> None:
         if step % 50 == 0 or step == steps - 1:
             elapsed = time.time() - start
             print(f"step {step + 1}/{steps} loss {loss.item():.4f} "
-                  f"{elapsed / (step + 1):.2f} s/step, eta {(steps - step - 1) * elapsed / (step + 1) / 60:.0f} min",
+                  f"{elapsed / (step + 1):.2f} s/step, eta {(steps - step - 1) * elapsed / (step + 1) / 60:.0f} min, "
+                  f"peak {torch.cuda.max_memory_allocated() / 2**30:.1f} GB",
                   flush=True)
     after = evaluate(model, evals, len(prompt_ids), pad, args.micro_batch)
     print(f"eval loss before {before:.4f} after {after:.4f}")
