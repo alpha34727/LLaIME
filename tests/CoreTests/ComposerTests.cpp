@@ -79,3 +79,33 @@ TEST(Composer, TextOffset) {
   EXPECT_EQ(c.TextOffsetOf(1), 1u);
   EXPECT_EQ(c.TextOffsetOf(2), 2u);
 }
+
+TEST(Composer, NBestStartsWithWalkAndOffersAlternatives) {
+  auto c = Compose({L"ㄧˋ", L"ㄧˋ"});
+  auto best = c.NBest(8);
+  ASSERT_GE(best.size(), 3u);
+  EXPECT_EQ(best[0].Text(), c.Text());
+  for (size_t i = 1; i < best.size(); ++i) EXPECT_GE(best[i - 1].score, best[i].score);
+  bool hasAlternative = std::any_of(best.begin(), best.end(),
+                                    [](const Sentence& s) { return s.Text() == L"異議"; });
+  EXPECT_TRUE(hasAlternative);
+}
+
+TEST(Composer, NBestRespectsPins) {
+  auto c = Compose({L"ㄧˋ", L"ㄧˋ"});
+  auto cands = c.CandidatesAtCursor();
+  auto it = std::find_if(cands.begin(), cands.end(),
+                         [](const Candidate& x) { return x.text == L"異議"; });
+  ASSERT_NE(it, cands.end());
+  c.Select(*it);
+  for (const Sentence& s : c.NBest(8)) EXPECT_EQ(s.Text(), L"異議");
+}
+
+TEST(Composer, NBestDistinctTexts) {
+  auto c = Compose({L"ㄨㄛˇ", L"ㄇㄣ˙", L"ㄧˋ", L"ㄑㄧˇ", L"ㄑㄩˋ", L"ㄊㄞˊ", L"ㄅㄟˇ"});
+  auto best = c.NBest(16);
+  EXPECT_EQ(best[0].Text(), L"我們一起去台北");
+  for (size_t i = 0; i < best.size(); ++i) {
+    for (size_t j = i + 1; j < best.size(); ++j) EXPECT_NE(best[i].Text(), best[j].Text());
+  }
+}

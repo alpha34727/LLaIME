@@ -16,6 +16,17 @@ struct Node {
   bool pinned = false;
 };
 
+// A whole conversion of the buffer: one of the N best segmentations.
+struct Sentence {
+  std::vector<Node> nodes;
+  double score = 0;  // sum of node log10 scores
+  std::wstring Text() const {
+    std::wstring text;
+    for (const Node& node : nodes) text += node.text;
+    return text;
+  }
+};
+
 struct Candidate {
   std::wstring text;
   size_t start = 0;
@@ -45,6 +56,9 @@ class Composer {
   void DropFront(size_t count);
 
   const std::vector<Node>& Walk() const;
+  // The `k` best distinct conversions, considering the `perSpan` best entries of each span.
+  // Pins apply as in Walk(). Used to give the language model alternatives to rank.
+  std::vector<Sentence> NBest(size_t k, size_t perSpan = 4) const;
   std::wstring Text() const;
   // Character offset in Text() of the boundary before element `index`.
   size_t TextOffsetOf(size_t index) const;
@@ -66,6 +80,9 @@ class Composer {
     size_t start, length;
     std::wstring text;
   };
+
+  enum class SpanResult { Ok, Skip, Stop };  // Stop: no longer span from here can match
+  SpanResult SpanOptions(size_t i, size_t len, size_t maxOptions, std::vector<Node>& out) const;
 
   bool IsLiteral(size_t i) const { return !elements_[i].literal.empty(); }
   bool SpanHasLiteral(size_t start, size_t length) const;

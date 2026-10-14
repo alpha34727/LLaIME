@@ -98,6 +98,35 @@ std::vector<Syllable> Composer::Syllables(size_t start, size_t length) const {
   return out;
 }
 
+Composer::SpanResult Composer::SpanOptions(size_t i, size_t len, size_t maxOptions,
+                                           std::vector<Node>& out) const {
+  out.clear();
+  bool conflicts = false;
+  if (const Pin* pin = PinFor(i, len, &conflicts)) {
+    out.push_back({i, len, pin->text, 0, true});
+    return SpanResult::Ok;
+  }
+  if (conflicts) return SpanResult::Skip;
+  if (IsLiteral(i)) {
+    if (len != 1) return SpanResult::Stop;
+    out.push_back({i, 1, elements_[i].literal, 0, false});
+    return SpanResult::Ok;
+  }
+  if (SpanHasLiteral(i, len)) return SpanResult::Stop;
+  std::vector<LexEntry> entries;
+  if (lexicon_ && lexicon_->Lookup(Syllables(i, len), entries)) {
+    for (size_t k = 0; k < entries.size() && k < maxOptions; ++k) {
+      out.push_back({i, len, std::wstring(entries[k].text), entries[k].score, false});
+    }
+    return SpanResult::Ok;
+  }
+  if (len == 1) {
+    out.push_back({i, 1, elements_[i].syllable.ToString(), kUnknownScore, false});
+    return SpanResult::Ok;
+  }
+  return SpanResult::Skip;
+}
+
 const std::vector<Node>& Composer::Walk() const {
   if (walkValid_) return walk_;
   const size_t n = elements_.size();
@@ -106,42 +135,18 @@ const std::vector<Node>& Composer::Walk() const {
   std::vector<Node> back(n + 1);
   best[0] = 0;
 
-  std::vector<LexEntry> entries;
+  std::vector<Node> options;
   for (size_t i = 0; i < n; ++i) {
     if (best[i] == kNegInf) continue;
     const size_t maxLen = std::min(Lexicon::kMaxPhraseLength, n - i);
     for (size_t len = 1; len <= maxLen; ++len) {
-      Node node{i, len, {}, 0, false};
-      bool conflicts = false;
-      const Pin* pin = PinFor(i, len, &conflicts);
-      if (pin) {
-        node.text = pin->text;
-        node.score = 0;
-        node.pinned = true;
-      } else if (conflicts) {
-        continue;
-      } else if (IsLiteral(i)) {
-        if (len != 1) break;
-        node.text = elements_[i].literal;
-      } else if (SpanHasLiteral(i, len)) {
-        break;
-      } else {
-        entries.clear();
-        auto seq = Syllables(i, len);
-        if (lexicon_ && lexicon_->Lookup(seq, entries)) {
-          node.text = entries.front().text;
-          node.score = entries.front().score;
-        } else if (len == 1) {
-          node.text = elements_[i].syllable.ToString();
-          node.score = kUnknownScore;
-        } else {
-          continue;
-        }
-      }
-      double total = best[i] + node.score;
+      SpanResult r = SpanOptions(i, len, 1, options);
+      if (r == SpanResult::Stop) break;
+      if (r == SpanResult::Skip) continue;
+      double total = best[i] + options.front().score;
       if (total > best[i + len]) {
         best[i + len] = total;
-        back[i + len] = std::move(node);
+        back[i + len] = std::move(options.front());
       }
     }
   }
@@ -153,6 +158,69 @@ const std::vector<Node>& Composer::Walk() const {
   std::reverse(walk_.begin(), walk_.end());
   walkValid_ = true;
   return walk_;
+}
+
+std::vector<Sentence> Composer::NBest(size_t k, size_t perSpan) const {
+  // k-best Viterbi: every boundary keeps its k best partial paths; a path is a node plus a
+  // pointer to the path it extends (boundary, rank).
+  struct Partial {
+    double score;
+    Node node;
+    size_t prevPos;
+    size_t prevRank;
+  };
+  const size_t n = elements_.size();
+  std::vector<std::vector<Partial>> paths(n + 1);
+  paths[0].push_back({0, Node{}, 0, 0});
+
+  std::vector<Node> options;
+  for (size_t i = 0; i < n; ++i) {
+    if (paths[i].empty()) continue;
+    const size_t maxLen = std::min(Lexicon::kMaxPhraseLength, n - i);
+    for (size_t len = 1; len <= maxLen; ++len) {
+      SpanResult r = SpanOptions(i, len, perSpan, options);
+      if (r == SpanResult::Stop) break;
+      if (r == SpanResult::Skip) continue;
+      auto& target = paths[i + len];
+      for (size_t rank = 0; rank < paths[i].size(); ++rank) {
+        for (const Node& option : options) {
+          target.push_back({paths[i][rank].score + option.score, option, i, rank});
+        }
+      }
+      // Keep the k best so far; the target is final once i reaches it.
+      if (target.size() > 4 * k) {
+        std::partial_sort(target.begin(), target.begin() + k, target.end(),
+                          [](const Partial& a, const Partial& b) { return a.score > b.score; });
+        target.resize(k);
+      }
+    }
+    if (i + 1 <= n) {
+      auto& next = paths[i + 1];
+      std::sort(next.begin(), next.end(),
+                [](const Partial& a, const Partial& b) { return a.score > b.score; });
+      if (next.size() > k) next.resize(k);
+    }
+  }
+
+  std::vector<Sentence> out;
+  for (size_t rank = 0; rank < paths[n].size() && out.size() < k; ++rank) {
+    Sentence sentence;
+    sentence.score = paths[n][rank].score;
+    size_t pos = n, r = rank;
+    while (pos > 0) {
+      const Partial& p = paths[pos][r];
+      sentence.nodes.push_back(p.node);
+      pos = p.prevPos;
+      r = p.prevRank;
+    }
+    std::reverse(sentence.nodes.begin(), sentence.nodes.end());
+    // Different segmentations can spell the same text; keep the best-scoring one.
+    const std::wstring text = sentence.Text();
+    bool duplicate = std::any_of(out.begin(), out.end(),
+                                 [&](const Sentence& s) { return s.Text() == text; });
+    if (!duplicate) out.push_back(std::move(sentence));
+  }
+  return out;
 }
 
 std::wstring Composer::Text() const {

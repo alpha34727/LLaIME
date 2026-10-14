@@ -30,3 +30,6 @@ user.db
 
 # Local scratch
 *.log
+
+# Downloaded models
+/models/
