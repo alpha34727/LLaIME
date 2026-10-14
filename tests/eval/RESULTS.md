@@ -75,3 +75,38 @@ Qwen3.5-2B Q4_K_M，w = 0.75，p = 4。`commonvoice_test.tsv` 是另一組 2000 
 - 加入維基資料後，維基測試從 61.4% 升到 70.5%，Common Voice 持平或略升，但仍低於 Qwen 2B。
 - 台灣用字只有 58%：Laya 偏好身份、計劃等寫法；上表 Laya 列未加台灣用字扣分。
 - 與 Qwen 合併在 Common Voice 上 +0.4～1.2 點，維基上略降。
+
+## System 1 排序器：Laya（第 4b 階段，2026-10-15）
+
+`convaiinnovations/laya-multilingual`（mmBERT-base，322M），把詞庫前 16 名候選整句當成一題 `choice` 的選項，一次前向傳遞給出各候選機率。用 `laya-train`（soft-ce、選項順序隨機）微調；訓練資料由文字自動產生（文字 → 注音 → 詞庫 N-best），評測句所在的整句都排除在外。
+
+- laya-cv：Common Voice 1.4 萬題，4 輪。
+- laya-cvwiki：Common Voice＋台灣正體維基百科（zetavg/zh-tw-wikipedia，CC BY-SA）共 6.3 萬題，4 輪。
+- `wikipedia_test.tsv`：2000 句維基百科片段（與訓練句不重疊），比口語難得多。
+
+整句正確率（各列都含詞庫 N-best 沒有正解的句子）：
+
+| 選字 | dev | test | 維基 |
+|---|---|---|---|
+| 純詞庫 | 71.6% | 71.8% | 52.9% |
+| Laya 未微調 | 15.7% | — | — |
+| laya-cv | 82.8% | 83.2% | 61.4% |
+| laya-cvwiki | 85.1% | 83.2% | 70.5% |
+| laya-cvwiki ONNX INT8 | 83.5% | 82.4% | 69.6% |
+| Qwen3.5-2B Q4（目前預設） | 88.2% | 85.6% | 74.1% |
+| Qwen＋0.5 × laya-cvwiki | 88.6% | 86.8% | 73.7% |
+
+延遲（每次選字 p50，Laya 含 Python 斷詞開銷）：
+
+| 模型 | RTX 5060 Ti | i5-12400 CPU 12 緒 | CPU 4 緒 |
+|---|---|---|---|
+| laya-cvwiki PyTorch | 25 ms | — | — |
+| laya-cvwiki ONNX fp32 | — | 104 ms | 130 ms |
+| laya-cvwiki ONNX INT8 | — | **51 ms** | **60 ms** |
+| Qwen3.5-0.8B Q4 | 52 ms | 449 ms | — |
+| Qwen3.5-2B Q4 | 58 ms | 856 ms | — |
+| MiniCPM5-1B Q4 | 14 ms | 272 ms | — |
+
+- 在 CPU 上，LLM 每次要 0.3–0.9 秒，打字時跟不上；Laya INT8 約 50–60 ms，正確率 82–84%（Qwen 2B 在 CPU 上同樣 87% 但慢 17 倍）。適合當沒有獨立顯卡時的預設。
+- 有 GPU 時 Qwen 仍較準；兩者合併在 Common Voice 上多 0.4–1.2 點，在維基上沒有幫助。
+- 檔案大小：fp32 1.29 GB、INT8 925 MB。大部分是 25.6 萬詞的詞嵌入（INT8 只量化 MatMul）；只保留中文會用到的詞元可再大幅縮小。

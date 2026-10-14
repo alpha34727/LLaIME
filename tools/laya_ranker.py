@@ -1,7 +1,8 @@
 """Score candidate sentences with a Laya checkpoint and evaluate it like LLaIME.Eval (stage 4b).
 
   score     Laya log-probabilities for every case of a cases JSONL (build_ranker_data.py),
-            written as TSV: id, then option|logprob in the case's option order.
+            written as TSV: id, then option|logprob in the case's option order. With --onnx,
+            runs an exported graph (export_onnx.py from the Laya repo) on the CPU.
   evaluate  Sentence accuracy over an LLaIME.Eval dump: Laya alone, Laya + lexicon, and
             Laya + lexicon + the dump's LM scores, over a grid of weights. Rows the cases left
             out (true sentence not in the N best, or one candidate) count as in the dump.
@@ -22,15 +23,33 @@ def score(args: argparse.Namespace) -> None:
     import laya
     from laya import agent as agent_module
 
-    agent = laya.load(str(args.checkpoint), device=args.device)
+    if args.onnx:
+        import onnxruntime as ort
+        from laya.onnx_agent import ONNXAgent
+
+        agent = ONNXAgent(str(args.checkpoint), onnx_path=str(args.onnx))
+        # ONNXAgent picks CUDA when present; this measures the CPU path.
+        options = ort.SessionOptions()
+        options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        if args.threads:
+            options.intra_op_num_threads = args.threads
+        agent.session = ort.InferenceSession(str(args.onnx), sess_options=options,
+                                             providers=["CPUExecutionProvider"])
+    else:
+        agent = laya.load(str(args.checkpoint), device=args.device)
     raw: dict[int, np.ndarray] = {}
 
     # Probabilities in the public answer are rounded to 4 places; keep the unrounded,
     # temperature-free option logits instead.
     original = agent._decode_answers
 
+    def option_rows(logits, items, offset):
+        if args.onnx:  # ONNX logits are already one row per question, in slot order
+            return [logits[offset + j, :len(item["markers"])] for j, item in enumerate(items)]
+        return agent_module._option_logits(logits, items, offset)
+
     def decode(logits, act, items, ids, internal, offset, lang=None):
-        rows = agent_module._option_logits(logits, items, offset)
+        rows = option_rows(logits, items, offset)
         for j, qid in enumerate(ids):
             row = np.asarray(rows[j], dtype=np.float64)
             p = row - row.max()
@@ -42,7 +61,7 @@ def score(args: argparse.Namespace) -> None:
     cases = [json.loads(line) for line in args.cases.read_text(encoding="utf-8").splitlines()]
     timings = []
     with args.output.open("w", encoding="utf-8", newline="\n") as f:
-        for case in cases:
+        for case in cases[: args.limit]:
             raw.clear()
             start = time.perf_counter()
             agent.predict(case["state"], case["questions"], max_len=args.max_len)
@@ -56,7 +75,7 @@ def score(args: argparse.Namespace) -> None:
             f.write(case["id"] + "\t" + "\t".join(
                 f"{o}|{v:.5f}" for o, v in zip(options, logp)) + "\n")
     timings.sort()
-    print(f"{len(cases)} cases; latency ms p50 {timings[len(timings) // 2]:.1f} "
+    print(f"{len(timings)} cases; latency ms p50 {timings[len(timings) // 2]:.1f} "
           f"p95 {timings[int(len(timings) * 0.95)]:.1f}")
 
 
@@ -104,6 +123,9 @@ def main() -> None:
     s.add_argument("--cases", type=Path, required=True)
     s.add_argument("--device", default=None)
     s.add_argument("--max-len", type=int, default=1024, help="token budget per case")
+    s.add_argument("--onnx", type=Path, help="exported graph: run with ONNX Runtime on the CPU")
+    s.add_argument("--threads", type=int, default=0, help="CPU threads (0: all)")
+    s.add_argument("--limit", type=int, default=None, help="score only the first N cases")
     e = sub.add_parser("evaluate")
     e.add_argument("--scores", type=Path, required=True)
     e.add_argument("--dump", type=Path, required=True)
