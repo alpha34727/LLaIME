@@ -26,6 +26,10 @@ inline constexpr GUID GUID_DisplayAttributeInput = {
 inline constexpr GUID GUID_DisplayAttributeConverted = {
     0x677d3cab, 0xeb1b, 0x44bb, {0xaa, 0xbb, 0xef, 0xad, 0x22, 0x83, 0x4c, 0x8e}};
 
+// {7B3440A2-D1BE-41E2-B012-DADD895C61CE}
+inline constexpr GUID GUID_DisplayAttributeError = {
+    0x7b3440a2, 0xd1be, 0x41e2, {0xb0, 0x12, 0xda, 0xdd, 0x89, 0x5c, 0x61, 0xce}};
+
 inline constexpr LANGID kLangIdZhTw = MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_TRADITIONAL);
 
 }  // namespace llaime

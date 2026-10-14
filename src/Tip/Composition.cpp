@@ -80,14 +80,15 @@ void TextService::EndComposition(TfEditCookie ec) {
   compositionContext_.Reset();
 }
 
-void TextService::ApplyDisplayAttribute(ITfContext* context, TfEditCookie ec, ITfRange* range) {
-  if (inputAttributeAtom_ == TF_INVALID_GUIDATOM) return;
+void TextService::ApplyDisplayAttribute(ITfContext* context, TfEditCookie ec, ITfRange* range,
+                                        TfGuidAtom atom) {
+  if (atom == TF_INVALID_GUIDATOM) return;
   ComPtr<ITfProperty> prop;
   if (FAILED(context->GetProperty(GUID_PROP_ATTRIBUTE, &prop))) return;
   VARIANT var;
   VariantInit(&var);
   var.vt = VT_I4;
-  var.lVal = static_cast<LONG>(inputAttributeAtom_);
+  var.lVal = static_cast<LONG>(atom);
   prop->SetValue(ec, range, &var);
 }
 
@@ -98,7 +99,9 @@ void TextService::UpdateComposition(ITfContext* context, TfEditCookie ec) {
   }
   std::wstring display = composer_.Text();
   const size_t insertAt = composer_.TextOffsetOf(composer_.cursor());
-  const std::wstring readingText = reading_.Text();
+  std::wstring readingText = reading_.Text();
+  // An invalid first-tone syllable shows its tone mark so the highlight covers what was typed.
+  if (readingInvalid_ && reading_.Current().tone() == 1) readingText += static_cast<wchar_t>(0x02C9);
   display.insert(std::min(insertAt, display.size()), readingText);
   const LONG caret = static_cast<LONG>(insertAt + readingText.size());
 
@@ -106,7 +109,13 @@ void TextService::UpdateComposition(ITfContext* context, TfEditCookie ec) {
   ComPtr<ITfRange> range;
   if (FAILED(composition_->GetRange(&range))) return;
   range->SetText(ec, 0, display.c_str(), static_cast<LONG>(display.size()));
-  ApplyDisplayAttribute(context, ec, range.Get());
+  ApplyDisplayAttribute(context, ec, range.Get(), inputAttributeAtom_);
+  if (readingInvalid_ && !readingText.empty()) {
+    const LONG begin = static_cast<LONG>(insertAt);
+    if (ComPtr<ITfRange> bad = SubRange(range.Get(), ec, begin, caret)) {
+      ApplyDisplayAttribute(context, ec, bad.Get(), errorAttributeAtom_);
+    }
+  }
   SetCaret(context, ec, range.Get(), caret);
 }
 

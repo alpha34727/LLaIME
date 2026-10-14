@@ -53,9 +53,8 @@ STDMETHODIMP LangBarButton::GetInfo(TF_LANGBARITEMINFO* info) {
   *info = {};
   info->clsidService = CLSID_TextService;
   info->guidItem = GUID_LBI_InputMode;
-  // The shell recolors mask-only icons to the taskbar text color with TEXTCOLORICON.
   // SHOWNINTRAY is documented as unsupported but is what keeps the item in the taskbar.
-  info->dwStyle = TF_LBI_STYLE_BTN_BUTTON | TF_LBI_STYLE_SHOWNINTRAY | TF_LBI_STYLE_TEXTCOLORICON;
+  info->dwStyle = TF_LBI_STYLE_BTN_BUTTON | TF_LBI_STYLE_SHOWNINTRAY;
   info->ulSort = 0;
   StringCchCopyW(info->szDescription, ARRAYSIZE(info->szDescription), L"LLaIME 輸入模式");
   return S_OK;
@@ -116,7 +115,7 @@ STDMETHODIMP LangBarButton::OnMenuSelect(UINT id) {
 
 STDMETHODIMP LangBarButton::GetIcon(HICON* icon) {
   if (!icon) return E_INVALIDARG;
-  *icon = CreateMonochromeTextIcon(callbacks_.isChinese() ? L"中" : L"英", LangBarIconSize());
+  *icon = CreateTaskbarTextIcon(callbacks_.isChinese() ? L"中" : L"英", LangBarIconSize());
   return *icon ? S_OK : E_FAIL;
 }
 

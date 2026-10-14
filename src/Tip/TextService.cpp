@@ -7,6 +7,7 @@
 #include "EditSession.h"
 #include "Globals.h"
 #include "ui/CandidateWindow.h"
+#include "ui/ThemeWatcher.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -87,6 +88,7 @@ STDMETHODIMP TextService::ActivateEx(ITfThreadMgr* threadMgr, TfClientId clientI
   if (SUCCEEDED(CoCreateInstance(CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER,
                                  IID_PPV_ARGS(&categoryMgr)))) {
     categoryMgr->RegisterGUID(GUID_DisplayAttributeInput, &inputAttributeAtom_);
+    categoryMgr->RegisterGUID(GUID_DisplayAttributeError, &errorAttributeAtom_);
   }
 
   candidateWindow_ = std::make_unique<CandidateWindow>([this](size_t index) {

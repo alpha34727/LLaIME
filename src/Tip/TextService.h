@@ -13,6 +13,7 @@ namespace llaime {
 
 class CandidateWindow;
 class LangBarButton;
+class ThemeWatcher;
 
 // What a key press does, decided in OnTestKeyDown and carried out in OnKeyDown.
 struct KeyAction {
@@ -124,7 +125,8 @@ class TextService final : public ITfTextInputProcessorEx,
   void CancelComposition(ITfContext* context, TfEditCookie ec);
   bool StartComposition(ITfContext* context, TfEditCookie ec);
   void EndComposition(TfEditCookie ec);
-  void ApplyDisplayAttribute(ITfContext* context, TfEditCookie ec, ITfRange* range);
+  void ApplyDisplayAttribute(ITfContext* context, TfEditCookie ec, ITfRange* range,
+                             TfGuidAtom atom);
   bool GetTextRect(ITfContext* context, TfEditCookie ec, size_t begin, size_t end, RECT* rect);
   void ResetState();
 
@@ -141,11 +143,13 @@ class TextService final : public ITfTextInputProcessorEx,
   DWORD conversionSinkCookie_ = TF_INVALID_COOKIE;
   DWORD openCloseSinkCookie_ = TF_INVALID_COOKIE;
   TfGuidAtom inputAttributeAtom_ = TF_INVALID_GUIDATOM;
+  TfGuidAtom errorAttributeAtom_ = TF_INVALID_GUIDATOM;
 
   bool chineseMode_ = true;
   bool fullShape_ = false;
   bool updatingCompartment_ = false;
   bool shiftAlone_ = false;
+  bool readingInvalid_ = false;  // last tone key completed a syllable that does not exist
 
   const Lexicon* lexicon_;
   BopomofoReading reading_;
@@ -153,6 +157,7 @@ class TextService final : public ITfTextInputProcessorEx,
   std::vector<Candidate> candidates_;
   std::unique_ptr<CandidateWindow> candidateWindow_;
   LangBarButton* langBarButton_ = nullptr;
+  std::unique_ptr<ThemeWatcher> themeWatcher_;  // refreshes the 中/英 icon on theme change
 
   Microsoft::WRL::ComPtr<ITfComposition> composition_;
   Microsoft::WRL::ComPtr<ITfContext> compositionContext_;

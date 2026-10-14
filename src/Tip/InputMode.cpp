@@ -3,6 +3,7 @@
 #include "EditSession.h"
 #include "LangBarButton.h"
 #include "TextService.h"
+#include "ui/ThemeWatcher.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -119,10 +120,14 @@ bool TextService::InitLangBar() {
     langBarButton_ = nullptr;
     return false;
   }
+  themeWatcher_ = std::make_unique<ThemeWatcher>([this] {
+    if (langBarButton_) langBarButton_->Refresh();
+  });
   return true;
 }
 
 void TextService::UninitLangBar() {
+  themeWatcher_.reset();
   if (!langBarButton_) return;
   ComPtr<ITfLangBarItemMgr> mgr;
   if (threadMgr_ && SUCCEEDED(threadMgr_.As(&mgr))) mgr->RemoveItem(langBarButton_);

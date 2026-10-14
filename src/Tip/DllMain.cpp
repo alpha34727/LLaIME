@@ -3,6 +3,7 @@
 #include "Register.h"
 #include "ui/CandidateWindow.h"
 #include "ui/PopupMenu.h"
+#include "ui/ThemeWatcher.h"
 
 using namespace llaime;
 
@@ -29,6 +30,7 @@ STDAPI DllCanUnloadNow() {
   if (g_dllRefCount != 0) return S_FALSE;
   CandidateWindow::UnregisterClass();
   UnregisterPopupMenuClass();
+  ThemeWatcher::UnregisterClass();
   return S_OK;
 }
 

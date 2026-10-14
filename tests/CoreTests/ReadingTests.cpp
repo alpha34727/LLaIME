@@ -61,3 +61,11 @@ TEST(BopomofoReading, Backspace) {
   EXPECT_TRUE(reading.Empty());
   EXPECT_FALSE(reading.Backspace());
 }
+
+TEST(BopomofoReading, BackspaceRemovesRestoredToneFirst) {
+  BopomofoReading reading(CreateStandardLayout());
+  reading.Restore(*Syllable::Parse(L"ㄆㄨㄟˇ"));
+  EXPECT_TRUE(reading.Backspace());
+  EXPECT_FALSE(reading.Current().hasTone());
+  EXPECT_EQ(reading.Text(), L"ㄆㄨㄟ");
+}

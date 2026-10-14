@@ -12,6 +12,7 @@
 #include "Globals.h"
 #include "ui/CandidateWindow.h"
 #include "ui/PopupMenu.h"
+#include "ui/TextIcon.h"
 #include "ui/Theme.h"
 
 using Microsoft::WRL::ComPtr;
@@ -31,6 +32,8 @@ void Pump(int ms) {
   }
 }
 
+bool SavePixels(void* bits, int w, int h, const std::wstring& path);
+
 bool SavePng(HWND hwnd, const std::wstring& path) {
   RECT rc;
   GetWindowRect(hwnd, &rc);
@@ -46,6 +49,12 @@ bool SavePng(HWND hwnd, const std::wstring& path) {
   PrintWindow(hwnd, dc, PW_RENDERFULLCONTENT);
   SelectObject(dc, old);
   DeleteDC(dc);
+  bool ok = SavePixels(bits, w, h, path);
+  DeleteObject(bmp);
+  return ok;
+}
+
+bool SavePixels(void* bits, int w, int h, const std::wstring& path) {
 
   ComPtr<IWICImagingFactory> wic;
   ComPtr<IWICBitmapEncoder> encoder;
@@ -69,7 +78,6 @@ bool SavePng(HWND hwnd, const std::wstring& path) {
          SUCCEEDED(frame->WritePixels(h, w * 4, w * h * 4, static_cast<BYTE*>(bits))) &&
          SUCCEEDED(frame->Commit()) && SUCCEEDED(encoder->Commit());
   }
-  DeleteObject(bmp);
   return ok;
 }
 
@@ -110,6 +118,35 @@ void PreviewMenu(const std::wstring& dir, const wchar_t* suffix) {
   capture.join();
 }
 
+// Draws the taskbar 中/英 icons (current Windows theme) on a taskbar-colored strip.
+void PreviewTaskbarIcons(const std::wstring& dir) {
+  const int size = LangBarIconSize();
+  const int w = size * 5, h = size * 2;
+  HDC screen = GetDC(nullptr);
+  HDC dc = CreateCompatibleDC(screen);
+  BITMAPINFO bi{};
+  bi.bmiHeader = {sizeof(BITMAPINFOHEADER), w, -h, 1, 32, BI_RGB};
+  void* bits = nullptr;
+  HBITMAP bmp = CreateDIBSection(screen, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+  ReleaseDC(nullptr, screen);
+  HGDIOBJ old = SelectObject(dc, bmp);
+  RECT rc{0, 0, w, h};
+  HBRUSH bg = CreateSolidBrush(SystemUsesLightTheme() ? RGB(238, 238, 238) : RGB(28, 28, 28));
+  FillRect(dc, &rc, bg);
+  DeleteObject(bg);
+  int x = size;
+  for (const wchar_t* text : {L"中", L"英"}) {
+    HICON icon = CreateTaskbarTextIcon(text, size);
+    DrawIconEx(dc, x, size / 2, icon, size, size, 0, nullptr, DI_NORMAL);
+    DestroyIcon(icon);
+    x += size * 2;
+  }
+  SelectObject(dc, old);
+  DeleteDC(dc);
+  SavePixels(bits, w, h, dir + L"/taskbar_icons.png");
+  DeleteObject(bmp);
+}
+
 }  // namespace
 
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR cmdLine, int) {
@@ -123,6 +160,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR cmdLine, int) {
     PreviewCandidates(dir, suffix);
     PreviewMenu(dir, suffix);
   }
+  PreviewTaskbarIcons(dir);
   CoUninitialize();
   return 0;
 }

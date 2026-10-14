@@ -5,12 +5,15 @@
 
 namespace llaime {
 
-// Creates a monochrome (mask-only) icon showing `text`. Combined with
-// TF_LBI_STYLE_TEXTCOLORICON, Windows recolors its black pixels to the taskbar's text color,
-// so the icon follows the light/dark taskbar theme. Caller owns the icon (DestroyIcon).
-HICON CreateMonochromeTextIcon(std::wstring_view text, int size);
+// Creates an anti-aliased 32-bpp icon showing `text` in the taskbar's text color: white on a
+// dark taskbar, black on a light one. (Windows 11 does not recolor TF_LBI_STYLE_TEXTCOLORICON
+// icons, so the theme has to be applied here.) Caller owns the icon (DestroyIcon).
+HICON CreateTaskbarTextIcon(std::wstring_view text, int size);
 
 // Icon edge length for language bar items at the current system DPI.
 int LangBarIconSize();
+
+// True when the Windows (taskbar) theme is light.
+bool SystemUsesLightTheme();
 
 }  // namespace llaime

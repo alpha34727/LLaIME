@@ -5,10 +5,11 @@ add_library(LLaIME.TipUi STATIC
   ui/Graphics.cpp
   ui/TextIcon.cpp
   ui/PopupMenu.cpp
+  ui/ThemeWatcher.cpp
   ui/CandidateWindow.cpp
 )
 target_include_directories(LLaIME.TipUi PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(LLaIME.TipUi PUBLIC d2d1 dwrite dwmapi shcore)
+target_link_libraries(LLaIME.TipUi PUBLIC d2d1 dwrite dwmapi shcore windowscodecs)
 
 add_library(LLaIME.Tip SHARED
   DllMain.cpp

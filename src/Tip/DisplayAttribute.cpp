@@ -19,6 +19,11 @@ const AttributeDef kAttributes[] = {
     {&GUID_DisplayAttributeInput,
      L"LLaIME Input",
      {{TF_CT_NONE, {0}}, {TF_CT_NONE, {0}}, TF_LS_DOT, FALSE, {TF_CT_NONE, {0}}, TF_ATTR_INPUT}},
+    // An invalid syllable is shown highlighted, as Microsoft Bopomofo does.
+    {&GUID_DisplayAttributeError,
+     L"LLaIME Invalid Reading",
+     {{TF_CT_SYSCOLOR, {COLOR_HIGHLIGHTTEXT}}, {TF_CT_SYSCOLOR, {COLOR_HIGHLIGHT}}, TF_LS_DOT, FALSE,
+      {TF_CT_NONE, {0}}, TF_ATTR_INPUT_ERROR}},
     {&GUID_DisplayAttributeConverted,
      L"LLaIME Converted",
      {{TF_CT_NONE, {0}}, {TF_CT_NONE, {0}}, TF_LS_SOLID, TRUE, {TF_CT_NONE, {0}},

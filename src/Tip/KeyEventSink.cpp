@@ -116,6 +116,13 @@ KeyAction TextService::ClassifyKey(WPARAM vk) const {
     }
   }
 
+  // Caps Lock types English letters: upper case, or lower case with Shift.
+  const bool capsLock = (GetKeyState(VK_CAPITAL) & 1) != 0;
+  if (capsLock && vk >= 'A' && vk <= 'Z') {
+    wchar_t letter = static_cast<wchar_t>(mods.shift ? vk - 'A' + 'a' : vk);
+    return MakeLiteral(fullShape_ ? ToFullWidth(letter) : std::wstring(1, letter));
+  }
+
   const wchar_t ch = UsCharFromVirtualKey(vk, mods.shift);
   if (ch && !mods.shift) {
     if (ch == L' ' && reading_.Empty()) {
@@ -177,6 +184,8 @@ void TextService::HandleAction(ITfContext* context, TfEditCookie ec, const KeyAc
   const bool candidateKey =
       action.type >= Type::CandidateDigit && action.type <= Type::CandidateClose;
   if (!candidateKey) CloseCandidates();
+  // The invalid-syllable highlight lasts until the next key.
+  if (action.type != Type::Swallow) readingInvalid_ = false;
 
   switch (action.type) {
     case Type::PassThrough:
@@ -186,9 +195,11 @@ void TextService::HandleAction(ITfContext* context, TfEditCookie ec, const KeyAc
       if (reading_.Feed(action.ch) == BopomofoReading::Result::Completed) {
         Syllable s = reading_.TakeSyllable();
         if (lexicon_ && !lexicon_->Contains(std::span<const Syllable>(&s, 1))) {
-          // Not a real syllable: keep what was typed (without the tone) for correction.
-          s.setTone(0);
+          // Not a real syllable: keep it (with its tone) highlighted for correction and beep,
+          // like Microsoft Bopomofo. Another tone key retries; Backspace removes the tone.
           reading_.Restore(s);
+          readingInvalid_ = true;
+          MessageBeep(MB_OK);
         } else {
           composer_.InsertSyllable(s);
           CommitOverflow(context, ec);

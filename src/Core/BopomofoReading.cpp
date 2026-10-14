@@ -70,7 +70,9 @@ Syllable BopomofoReading::TakeSyllable() {
 }
 
 bool BopomofoReading::Backspace() {
-  if (current_.vowel()) {
+  if (current_.hasTone()) {
+    current_.setTone(0);
+  } else if (current_.vowel()) {
     current_.setVowel(0);
   } else if (current_.medial()) {
     current_.setMedial(0);
