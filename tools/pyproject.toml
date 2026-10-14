@@ -1,0 +1,29 @@
+[project]
+name = "llaime-tools"
+version = "0.1.0"
+description = "LLaIME data, evaluation and training tools"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "torch>=2.14",
+    "transformers",
+    "peft",
+    "datasets",
+    "accelerate",
+    "onnx",
+    "onnxruntime-gpu",
+    "opencc-python-reimplemented",
+    "numpy",
+    "tqdm",
+    "pillow>=12.3.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true

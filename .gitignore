@@ -1,0 +1,32 @@
+# Build output
+/build/
+/out/
+bin/
+obj/
+x64/
+Win32/
+ARM64/
+.vs/
+*.user
+*.aps
+*.ipch
+CMakeUserPresets.json
+
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+
+# Models and generated data (downloaded or built by scripts)
+*.gguf
+*.onnx
+*.safetensors
+*.bin
+!third_party/**/*.bin
+data/raw/
+data/build/
+user.db
+*.db-journal
+
+# Local scratch
+*.log

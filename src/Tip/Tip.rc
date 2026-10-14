@@ -1,0 +1,27 @@
+#pragma code_page(65001)
+#include <winres.h>
+#include "resource.h"
+
+IDI_BOPOMOFO ICON "res/bopomofo.ico"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 0,1,0,0
+ PRODUCTVERSION 0,1,0,0
+ FILEOS 0x40004L
+ FILETYPE 0x2L
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040404b0"
+    BEGIN
+      VALUE "FileDescription", "LLaIME 輸入法"
+      VALUE "ProductName", "LLaIME"
+      VALUE "FileVersion", "0.1.0.0"
+      VALUE "ProductVersion", "0.1.0.0"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x404, 1200
+  END
+END

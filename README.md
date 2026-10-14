@@ -1,0 +1,45 @@
+# LLaIME
+
+以本地小型語言模型自動選字的 Windows 11 中文輸入法（注音為主），介面復刻微軟注音的 Fluent 風格。
+
+## 結構
+
+| 路徑 | 說明 |
+|---|---|
+| `src/Tip` | TSF 輸入法 DLL（C++，x64 + x86） |
+| `src/Engine` | 選字引擎背景程序（C++，詞庫 lattice + llama.cpp） |
+| `src/Common` | 共用標頭 |
+| `src/Settings` | 設定程式（WinUI 3） |
+| `tools` | Python 工具（uv 專案）：詞庫建置、評測、訓練 |
+| `scripts` | 開發用腳本 |
+
+## 開發環境
+
+- Visual Studio 2026（C++ 桌面開發、WinUI 應用程式開發）、Windows SDK 10.0.26100
+- CMake 4.x（`uv tool install cmake`）
+- uv（Python 工具環境，含 CUDA 版 PyTorch）
+- CUDA Toolkit 13.x（NVIDIA 加速）、Vulkan SDK（Intel／AMD 內顯加速）
+
+## 建置
+
+```powershell
+cmake --preset x64; cmake --build --preset x64-debug
+cmake --preset x86; cmake --build --preset x86-debug
+```
+
+## 安裝（開發用）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\dev-install.ps1          # 安裝並註冊（會跳出 UAC）
+powershell -ExecutionPolicy Bypass -File scripts\dev-install.ps1 -Uninstall
+```
+
+安裝後到「設定 → 時間與語言 → 語言與地區 → 中文（台灣）→ 語言選項 → 鍵盤 → 新增鍵盤」加入「LLaIME 注音」。
+
+## Python 工具
+
+```powershell
+cd tools
+uv sync
+uv run python make_icon.py ..\src\Tip\res\bopomofo.ico
+```
