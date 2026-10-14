@@ -264,18 +264,31 @@ void CandidateWindow::MoveColumn(int delta) {
   const size_t offset = selection_ - start;
   const size_t column = offset / kRows;
   const size_t row = offset % kRows;
-  const size_t pageItems = std::min(items_.size() - start, PageSize());
-  const size_t lastColumn = (pageItems - 1) / kRows;
+  const size_t page = start / PageSize();
+  // Row `row` of column `col` on page `p`, or the page's last item if that cell is empty.
+  auto cell = [&](size_t p, size_t col) {
+    const size_t first = p * PageSize();
+    return first + std::min(col * kRows + row, std::min(items_.size() - first, PageSize()) - 1);
+  };
+  auto lastColumn = [&](size_t p) {
+    return (std::min(items_.size() - p * PageSize(), PageSize()) - 1) / kRows;
+  };
   if (delta < 0) {
-    if (column == 0) {
-      SetExpanded(false);  // Left from the first column collapses the list
+    if (column > 0) {
+      selection_ -= kRows;
+    } else if (page > 0) {
+      // Left from the first column goes to the last column of the previous page.
+      selection_ = cell(page - 1, lastColumn(page - 1));
+    } else {
+      SetExpanded(false);  // Left from the first column of the first page collapses the list
       return;
     }
-    selection_ -= kRows;
+  } else if (column < lastColumn(page)) {
+    selection_ = cell(page, column + 1);
   } else {
-    // Right from the last column wraps to the first.
-    const size_t next = column == lastColumn ? 0 : column + 1;
-    selection_ = start + std::min(next * kRows + row, pageItems - 1);
+    // Right from the last column goes to the next page, and from the last page back to the
+    // first column of the first.
+    selection_ = cell(page + 1 < PageCount() ? page + 1 : 0, 0);
   }
   InvalidateRect(hwnd_, nullptr, FALSE);
 }

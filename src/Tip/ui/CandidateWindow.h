@@ -54,9 +54,10 @@ class CandidateWindow {
   bool Expanded() const { return expanded_; }
   void SetExpanded(bool expanded);
 
-  // Up/Down: previous/next candidate. Right expands the list, then moves column by column and
-  // wraps to the first; Left moves back a column and collapses from the first (in the list
-  // layout it pages back).
+  // Up/Down: previous/next candidate. Right expands the list, then moves column by column,
+  // on to the next page after the last column, and from the last page back to the first; Left
+  // moves back a column, to the previous page's last column, and collapses from the first
+  // column of the first page (in the list layout it pages back).
   void MoveSelection(int delta);
   void MoveColumn(int delta);
   void MovePage(int delta);
