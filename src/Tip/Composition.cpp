@@ -150,6 +150,22 @@ void TextService::CommitAll(ITfContext* context, TfEditCookie ec) {
   ResetState();
 }
 
+void TextService::InsertDirect(ITfContext* context, TfEditCookie ec, const std::wstring& text) {
+  ComPtr<ITfInsertAtSelection> insert;
+  ComPtr<ITfRange> range;
+  if (FAILED(context->QueryInterface(IID_PPV_ARGS(&insert))) ||
+      FAILED(insert->InsertTextAtSelection(ec, 0, text.c_str(), static_cast<LONG>(text.size()),
+                                           &range)) ||
+      !range) {
+    return;
+  }
+  range->Collapse(ec, TF_ANCHOR_END);
+  TF_SELECTION sel{};
+  sel.range = range.Get();
+  sel.style.ase = TF_AE_NONE;
+  context->SetSelection(ec, 1, &sel);
+}
+
 void TextService::CancelComposition(ITfContext* context, TfEditCookie ec) {
   CloseCandidates();
   if (composition_) {

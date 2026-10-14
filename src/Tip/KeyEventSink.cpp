@@ -22,15 +22,39 @@ KeyAction MakeLiteral(std::wstring text) {
   return a;
 }
 
-// Full-width punctuation for a US character: the layout-specific table first, then the
-// generic one (e.g. Shift+, -> ，).
-std::wstring Punctuation(const Lexicon* lexicon, wchar_t usChar) {
+KeyAction MakeInsert(std::wstring text) {
+  KeyAction a = Make(Type::DirectInsert);
+  a.text = std::move(text);
+  return a;
+}
+
+// First entry of the named lexicon tables `prefixes` + `usChar`.
+std::wstring LookupPunctuation(const Lexicon* lexicon, wchar_t usChar,
+                               std::initializer_list<const wchar_t*> prefixes) {
   if (!lexicon) return {};
   std::vector<LexEntry> entries;
-  for (std::wstring prefix : {L"_punctuation_Standard_", L"_punctuation_"}) {
+  for (std::wstring prefix : prefixes) {
     if (lexicon->LookupNamed(prefix + usChar, entries)) return std::wstring(entries.front().text);
   }
   return {};
+}
+
+// Full-width punctuation for a US character (e.g. Shift+, -> ，).
+std::wstring Punctuation(const Lexicon* lexicon, wchar_t usChar) {
+  return LookupPunctuation(lexicon, usChar, {L"_punctuation_Standard_", L"_punctuation_"});
+}
+
+// Ctrl+punctuation as in Microsoft Bopomofo: Ctrl+, ， Ctrl+. 。 Ctrl+/ ？ Ctrl+; ；
+// Ctrl+' 、 Ctrl+Shift+1 ！, falling back to the Shift table (Ctrl+Shift+; ：, Ctrl+[ 「).
+std::wstring CtrlPunctuation(const Lexicon* lexicon, wchar_t usChar) {
+  return LookupPunctuation(lexicon, usChar, {L"_ctrl_punctuation_", L"_punctuation_"});
+}
+
+// ASCII to its full-width form; space becomes the ideographic space.
+std::wstring ToFullWidth(wchar_t c) {
+  if (c == L' ') return std::wstring(1, static_cast<wchar_t>(0x3000));
+  if (c >= 0x21 && c <= 0x7e) return std::wstring(1, static_cast<wchar_t>(c + 0xfee0));
+  return std::wstring(1, c);
 }
 
 }  // namespace
@@ -53,10 +77,27 @@ bool TextService::CandidatesOpen() const {
 }
 
 KeyAction TextService::ClassifyKey(WPARAM vk) const {
-  if (!chineseMode_) return Make(Type::PassThrough);
   const Modifiers mods = Modifiers::Current();
-  if (mods.ctrl || mods.alt) return Make(Type::PassThrough);
+  if (vk == VK_SPACE && mods.shift && !mods.ctrl && !mods.alt) return Make(Type::ToggleShape);
+
+  if (!chineseMode_) {
+    // English mode only intercepts printable keys when typing full-width.
+    if (!fullShape_ || mods.ctrl || mods.alt) return Make(Type::PassThrough);
+    wchar_t ch = UsCharFromVirtualKey(vk, mods.shift);
+    return ch ? MakeInsert(ToFullWidth(ch)) : Make(Type::PassThrough);
+  }
+
   const bool composing = IsComposing();
+  if (mods.alt) return Make(Type::PassThrough);
+  if (mods.ctrl) {
+    wchar_t ch = UsCharFromVirtualKey(vk, mods.shift);
+    if (ch && !iswalnum(ch) && ch != L' ') {
+      if (std::wstring punct = CtrlPunctuation(lexicon_, ch); !punct.empty()) {
+        return MakeLiteral(punct);
+      }
+    }
+    return Make(Type::PassThrough);
+  }
 
   if (CandidatesOpen()) {
     if (vk >= '1' && vk <= '9' && !mods.shift) {
@@ -78,7 +119,10 @@ KeyAction TextService::ClassifyKey(WPARAM vk) const {
   const wchar_t ch = UsCharFromVirtualKey(vk, mods.shift);
   if (ch && !mods.shift) {
     if (ch == L' ' && reading_.Empty()) {
-      return composing ? Make(Type::OpenCandidates) : Make(Type::PassThrough);
+      // Space types a space, inside the composition if one is in progress.
+      std::wstring space = fullShape_ ? ToFullWidth(L' ') : L" ";
+      if (composing) return MakeLiteral(space);
+      return fullShape_ ? MakeInsert(space) : Make(Type::PassThrough);
     }
     if (reading_.IsToneKey(ch) && reading_.Empty()) {
       // A tone with nothing to apply to: type the digit unless we are composing.
@@ -91,10 +135,17 @@ KeyAction TextService::ClassifyKey(WPARAM vk) const {
     }
   }
   if (ch && ch != L' ') {
-    if (mods.shift && iswalpha(ch)) return MakeLiteral(std::wstring(1, ch));
+    if (mods.shift && iswalpha(ch)) {
+      return MakeLiteral(fullShape_ ? ToFullWidth(ch) : std::wstring(1, ch));
+    }
     if (std::wstring punct = Punctuation(lexicon_, ch); !punct.empty()) return MakeLiteral(punct);
   }
 
+  if (vk >= VK_NUMPAD0 && vk <= VK_NUMPAD9 && (composing || fullShape_)) {
+    wchar_t digit = static_cast<wchar_t>(L'0' + (vk - VK_NUMPAD0));
+    std::wstring text = fullShape_ ? ToFullWidth(digit) : std::wstring(1, digit);
+    return composing ? MakeLiteral(text) : MakeInsert(text);
+  }
   if (!composing) return Make(Type::PassThrough);
   switch (vk) {
     case VK_BACK: return Make(Type::Backspace);
@@ -108,9 +159,6 @@ KeyAction TextService::ClassifyKey(WPARAM vk) const {
     case VK_DOWN: return reading_.Empty() ? Make(Type::OpenCandidates) : Make(Type::Swallow);
     case VK_UP: case VK_PRIOR: case VK_NEXT: case VK_TAB: return Make(Type::Swallow);
     default: break;
-  }
-  if (vk >= VK_NUMPAD0 && vk <= VK_NUMPAD9) {
-    return MakeLiteral(std::wstring(1, static_cast<wchar_t>(L'0' + (vk - VK_NUMPAD0))));
   }
   return Make(Type::PassThrough);
 }
@@ -126,7 +174,8 @@ HRESULT TextService::ExecuteKeyAction(ITfContext* context, const KeyAction& acti
 
 void TextService::HandleAction(ITfContext* context, TfEditCookie ec, const KeyAction& action) {
   // Keys that are not for the candidate list close it first.
-  const bool candidateKey = action.type >= Type::CandidateDigit;
+  const bool candidateKey =
+      action.type >= Type::CandidateDigit && action.type <= Type::CandidateClose;
   if (!candidateKey) CloseCandidates();
 
   switch (action.type) {
@@ -205,6 +254,12 @@ void TextService::HandleAction(ITfContext* context, TfEditCookie ec, const KeyAc
       return;
     case Type::CandidateClose:
       CloseCandidates();
+      return;
+    case Type::ToggleShape:
+      SetFullShape(!fullShape_);
+      return;
+    case Type::DirectInsert:
+      InsertDirect(context, ec, action.text);
       return;
   }
   UpdateComposition(context, ec);

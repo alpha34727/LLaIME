@@ -100,6 +100,8 @@ STDMETHODIMP TextService::ActivateEx(ITfThreadMgr* threadMgr, TfClientId clientI
                          });
   });
 
+  // The taskbar button is optional; input still works without it.
+  InitLangBar();
   if (!InitThreadMgrEventSink() || !InitKeyEventSink() || !InitInputMode()) {
     Deactivate();
     return E_FAIL;
@@ -119,6 +121,7 @@ STDMETHODIMP TextService::Deactivate() {
   ResetState();
   candidateWindow_.reset();
   UninitInputMode();
+  UninitLangBar();
   UninitKeyEventSink();
   UninitThreadMgrEventSink();
   threadMgr_.Reset();

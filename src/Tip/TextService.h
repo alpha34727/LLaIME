@@ -12,6 +12,7 @@
 namespace llaime {
 
 class CandidateWindow;
+class LangBarButton;
 
 // What a key press does, decided in OnTestKeyDown and carried out in OnKeyDown.
 struct KeyAction {
@@ -36,6 +37,8 @@ struct KeyAction {
     CandidatePageDown,
     CandidateAccept,
     CandidateClose,
+    ToggleShape,   // Shift+Space: half/full width
+    DirectInsert,  // insert `text` straight into the document (nothing is being composed)
   };
   Type type = Type::PassThrough;
   wchar_t ch = 0;
@@ -100,7 +103,12 @@ class TextService final : public ITfTextInputProcessorEx,
   bool InitInputMode();
   void UninitInputMode();
   void SetChineseMode(bool chinese);
-  bool IsChineseMode() const { return chineseMode_; }
+  void SetFullShape(bool full);
+  void WriteConversionMode();
+  // Toggles from the taskbar button: commits any pending composition first.
+  void ToggleChineseFromUi();
+  bool InitLangBar();
+  void UninitLangBar();
 
   // Key handling (KeyEventSink.cpp)
   KeyAction ClassifyKey(WPARAM vk) const;
@@ -111,6 +119,7 @@ class TextService final : public ITfTextInputProcessorEx,
   // Composition (Composition.cpp)
   void UpdateComposition(ITfContext* context, TfEditCookie ec);
   void CommitAll(ITfContext* context, TfEditCookie ec);
+  void InsertDirect(ITfContext* context, TfEditCookie ec, const std::wstring& text);
   void CommitOverflow(ITfContext* context, TfEditCookie ec);
   void CancelComposition(ITfContext* context, TfEditCookie ec);
   bool StartComposition(ITfContext* context, TfEditCookie ec);
@@ -134,6 +143,7 @@ class TextService final : public ITfTextInputProcessorEx,
   TfGuidAtom inputAttributeAtom_ = TF_INVALID_GUIDATOM;
 
   bool chineseMode_ = true;
+  bool fullShape_ = false;
   bool updatingCompartment_ = false;
   bool shiftAlone_ = false;
 
@@ -142,6 +152,7 @@ class TextService final : public ITfTextInputProcessorEx,
   Composer composer_;
   std::vector<Candidate> candidates_;
   std::unique_ptr<CandidateWindow> candidateWindow_;
+  LangBarButton* langBarButton_ = nullptr;
 
   Microsoft::WRL::ComPtr<ITfComposition> composition_;
   Microsoft::WRL::ComPtr<ITfContext> compositionContext_;

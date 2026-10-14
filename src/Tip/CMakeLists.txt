@@ -9,6 +9,8 @@ add_library(LLaIME.Tip SHARED
   InputMode.cpp
   Composition.cpp
   DisplayAttribute.cpp
+  LangBarButton.cpp
+  ui/TextIcon.cpp
   ui/Theme.cpp
   ui/CandidateWindow.cpp
   Tip.def
