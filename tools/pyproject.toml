@@ -19,6 +19,7 @@ dependencies = [
     "openpyxl>=3.1.5",
     "laya>=0.4.7",
     "onnxscript>=0.7.2",
+    "gguf",
 ]
 
 [tool.uv]
@@ -26,6 +27,7 @@ package = false
 
 [tool.uv.sources]
 torch = { index = "pytorch-cu130" }
+gguf = { path = "../third_party/llama.cpp/gguf-py", editable = true }
 
 [[tool.uv.index]]
 name = "pytorch-cu130"
