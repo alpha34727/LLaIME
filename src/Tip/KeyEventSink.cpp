@@ -110,8 +110,11 @@ KeyAction TextService::ClassifyKey(WPARAM vk) const {
     switch (vk) {
       case VK_UP: return Make(Type::CandidateUp);
       case VK_DOWN: return Make(Type::CandidateDown);
-      case VK_PRIOR: case VK_LEFT: return Make(Type::CandidatePageUp);
-      case VK_NEXT: case VK_RIGHT: case VK_SPACE: return Make(Type::CandidatePageDown);
+      case VK_PRIOR: return Make(Type::CandidatePageUp);
+      case VK_NEXT: case VK_SPACE: return Make(Type::CandidatePageDown);
+      case VK_LEFT: return Make(Type::CandidateLeft);
+      case VK_RIGHT: return Make(Type::CandidateRight);
+      case VK_TAB: return Make(Type::CandidateToggleExpanded);
       case VK_RETURN: return Make(Type::CandidateAccept);
       case VK_ESCAPE: return Make(Type::CandidateClose);
       default: break;  // any other key closes the list and is handled normally
@@ -252,6 +255,15 @@ void TextService::HandleAction(ITfContext* context, TfEditCookie ec, const KeyAc
       return;
     case Type::CandidatePageDown:
       candidateWindow_->MovePage(1);
+      return;
+    case Type::CandidateLeft:
+      candidateWindow_->MoveColumn(-1);
+      return;
+    case Type::CandidateRight:
+      candidateWindow_->MoveColumn(1);
+      return;
+    case Type::CandidateToggleExpanded:
+      candidateWindow_->SetExpanded(!candidateWindow_->Expanded());
       return;
     case Type::CandidateAccept:
       SelectCandidate(context, ec, candidateWindow_->Selection());

@@ -1,5 +1,6 @@
 #include <algorithm>
 
+#include "EditSession.h"
 #include "Globals.h"
 #include "TextService.h"
 #include "ui/CandidateWindow.h"
@@ -254,6 +255,29 @@ void TextService::SelectCandidate(ITfContext* context, TfEditCookie ec, size_t i
   composer_.Select(candidates_[index]);
   CloseCandidates();
   UpdateComposition(context, ec);
+}
+
+void TextService::OpenEmojiPanel() {
+  if (compositionContext_) {
+    ComPtr<ITfContext> context = compositionContext_;
+    EditSession::Request(context.Get(), clientId_, TF_ES_SYNC | TF_ES_READWRITE,
+                         [this, context](TfEditCookie ec) {
+                           CommitAll(context.Get(), ec);
+                           return S_OK;
+                         });
+  }
+  CloseCandidates();
+  // Win+. opens the emoji and symbol panel, which types into the focused app.
+  INPUT inputs[4] = {};
+  const WORD keys[2] = {VK_LWIN, VK_OEM_PERIOD};
+  for (int i = 0; i < 2; ++i) {
+    inputs[i].type = INPUT_KEYBOARD;
+    inputs[i].ki.wVk = keys[i];
+    inputs[3 - i].type = INPUT_KEYBOARD;
+    inputs[3 - i].ki.wVk = keys[i];
+    inputs[3 - i].ki.dwFlags = KEYEVENTF_KEYUP;
+  }
+  SendInput(4, inputs, sizeof(INPUT));
 }
 
 void TextService::CloseCandidates() {

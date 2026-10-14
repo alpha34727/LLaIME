@@ -82,15 +82,21 @@ bool SavePixels(void* bits, int w, int h, const std::wstring& path) {
 }
 
 void PreviewCandidates(const std::wstring& dir, const wchar_t* suffix) {
-  CandidateWindow window(nullptr);
-  std::vector<std::wstring> items = {L"你好", L"妳好", L"好", L"郝", L"㚻", L"👌",
-                                     L"😀",   L"👍",   L"🙂", L"號", L"豪"};
-  window.Show(items, RECT{300, 300, 320, 320});
-  window.MoveSelection(0);
-  Pump(400);
-  HWND hwnd = FindWindowW(L"LLaIME.CandidateWindow", nullptr);
-  if (hwnd) SavePng(hwnd, dir + L"\\candidates_" + suffix + L".png");
-  window.Hide();
+  CandidateWindow window({});
+  std::vector<std::wstring> items = {
+      L"意義", L"異議", L"意譯", L"泄泄", L"洩洩", L"意", L"一", L"億", L"義", L"亦",
+      L"益",   L"易",   L"逸",   L"溢",   L"奕",   L"疫", L"藝", L"裔", L"翼", L"詣",
+      L"議",   L"異",   L"毅",   L"翊",   L"懿",   L"羿", L"誼", L"邑", L"弈", L"抑",
+      L"鎰",   L"驛",   L"悒",   L"熠",   L"👌",   L"😀", L"👍", L"🙂", L"役", L"憶"};
+  for (bool expanded : {false, true}) {
+    window.SetExpanded(expanded);
+    window.Show(items, RECT{300, 300, 320, 320});
+    Pump(400);
+    HWND hwnd = FindWindowW(L"LLaIME.CandidateWindow", nullptr);
+    std::wstring name = expanded ? L"/candidates_expanded_" : L"/candidates_";
+    if (hwnd) SavePng(hwnd, dir + name + suffix + L".png");
+    window.Hide();
+  }
 }
 
 void PreviewMenu(const std::wstring& dir, const wchar_t* suffix) {

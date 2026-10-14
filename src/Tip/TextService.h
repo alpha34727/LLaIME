@@ -36,6 +36,9 @@ struct KeyAction {
     CandidateDown,
     CandidatePageUp,
     CandidatePageDown,
+    CandidateLeft,    // previous column (expanded) or page (list)
+    CandidateRight,
+    CandidateToggleExpanded,
     CandidateAccept,
     CandidateClose,
     ToggleShape,   // Shift+Space: half/full width
@@ -141,6 +144,8 @@ class TextService final : public ITfTextInputProcessorEx,
   void OpenCandidates(ITfContext* context, TfEditCookie ec);
   void SelectCandidate(ITfContext* context, TfEditCookie ec, size_t index);
   void CloseCandidates();
+  // Commits the composition and opens the Windows emoji panel (the footer emoji button).
+  void OpenEmojiPanel();
   bool CandidatesOpen() const;
 
   LONG refCount_ = 1;

@@ -1,6 +1,5 @@
 #include "ui/CandidateWindow.h"
 
-#include <dwmapi.h>
 #include <shellscalingapi.h>
 #include <windowsx.h>
 
@@ -18,20 +17,30 @@ namespace {
 constexpr wchar_t kClassName[] = L"LLaIME.CandidateWindow";
 
 // Layout metrics in DIPs, measured from the Windows 11 Microsoft Bopomofo window.
-constexpr float kInset = 4;         // gap between window edge and row highlight
+constexpr float kInset = 4;         // gap between window edge and cell highlight
 constexpr float kRowHeight = 32;
 constexpr float kNumberX = 14;
-constexpr float kTextX = 34;
-constexpr float kRightColumn = 18;  // page dots
+constexpr float kTextX = 34;        // text start in the first (numbered) column
+constexpr float kCellTextPad = 12;  // text start in the other columns
+constexpr float kRightColumn = 18;  // page dots in the list layout
 constexpr float kFooterHeight = 32;
 constexpr float kMinWidth = 150;
+constexpr float kMinColumnWidth = 72;
 constexpr float kFontSize = 15;
-constexpr float kRowRadius = 4;
+constexpr float kIconSize = 14;
+constexpr float kCellRadius = 4;
 constexpr float kPillWidth = 3;
 constexpr float kPillHeight = 16;
 constexpr float kDotRadius = 2;
 constexpr float kDotSpacing = 10;
 constexpr float kArrowSize = 8;
+constexpr float kButtonWidth = 32;
+constexpr size_t kMaxDots = 5;
+
+// Segoe Fluent Icons glyphs used by Microsoft Bopomofo's footer.
+constexpr wchar_t kGlyphExpand[] = L"\xE89F";
+constexpr wchar_t kGlyphCollapse[] = L"\xE8A0";
+constexpr wchar_t kGlyphEmoji[] = L"\xF6B8";
 
 bool g_classRegistered = false;
 
@@ -48,13 +57,17 @@ bool RegisterWindowClass(WNDPROC proc) {
   return g_classRegistered;
 }
 
+bool Contains(const D2D1_RECT_F& r, float x, float y) {
+  return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
+}
+
 }  // namespace
 
 void CandidateWindow::UnregisterClass() {
   if (g_classRegistered && ::UnregisterClassW(kClassName, g_hInst)) g_classRegistered = false;
 }
 
-CandidateWindow::CandidateWindow(SelectHandler onSelect) : onSelect_(std::move(onSelect)) {}
+CandidateWindow::CandidateWindow(Handlers handlers) : handlers_(std::move(handlers)) {}
 
 CandidateWindow::~CandidateWindow() {
   if (hwnd_) DestroyWindow(hwnd_);
@@ -79,6 +92,7 @@ bool CandidateWindow::EnsureDeviceResources() {
     // Text formats are created in DIPs; the render target applies the DPI scale.
     textFormat_.Reset();
     numberFormat_.Reset();
+    iconFormat_.Reset();
     DWriteFactory()->CreateTextFormat(L"Microsoft JhengHei UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
                                       DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
                                       kFontSize, L"zh-TW", &textFormat_);
@@ -86,11 +100,15 @@ bool CandidateWindow::EnsureDeviceResources() {
                                       DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
                                       DWRITE_FONT_STRETCH_NORMAL, kFontSize, L"zh-TW",
                                       &numberFormat_);
-    if (!textFormat_ || !numberFormat_) return false;
-    for (IDWriteTextFormat* f : {textFormat_.Get(), numberFormat_.Get()}) {
+    DWriteFactory()->CreateTextFormat(L"Segoe Fluent Icons", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
+                                      DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+                                      kIconSize, L"en-US", &iconFormat_);
+    if (!textFormat_ || !numberFormat_ || !iconFormat_) return false;
+    for (IDWriteTextFormat* f : {textFormat_.Get(), numberFormat_.Get(), iconFormat_.Get()}) {
       f->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
       f->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
     }
+    iconFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     formatDpi_ = dpi_;
   }
   if (!target_) {
@@ -122,7 +140,8 @@ void CandidateWindow::Show(std::vector<std::wstring> items, const RECT& anchor) 
   }
   items_ = std::move(items);
   selection_ = 0;
-  hoverRow_ = -1;
+  hoverItem_ = -1;
+  hoverButton_ = FooterButton::None;
   theme_ = Theme::Current();
   ApplyPopupChrome(hwnd_, theme_.dark);
   UpdateLayout(anchor);
@@ -135,6 +154,16 @@ void CandidateWindow::Hide() {
   items_.clear();
 }
 
+void CandidateWindow::SetExpanded(bool expanded) {
+  if (expanded_ == expanded) return;
+  expanded_ = expanded;
+  hoverItem_ = -1;
+  if (!items_.empty()) {
+    UpdateLayout(anchor_);
+    InvalidateRect(hwnd_, nullptr, FALSE);
+  }
+}
+
 void CandidateWindow::UpdateLayout(const RECT& anchor) {
   anchor_ = anchor;
   HMONITOR monitor = MonitorFromRect(&anchor, MONITOR_DEFAULTTONEAREST);
@@ -143,15 +172,26 @@ void CandidateWindow::UpdateLayout(const RECT& anchor) {
   dpi_ = dpiX;
   EnsureDeviceResources();
 
+  // Columns are sized for the widest candidate overall, so paging does not resize the window.
   float maxText = 0;
-  for (const auto& item : items_) maxText = std::max(maxText, MeasureTextWidth(item, textFormat_.Get()));
-  widthDip_ = std::max(kMinWidth, kTextX + maxText + 16 + kRightColumn);
-  const size_t rows = std::min(kPageSize, items_.size());
-  const float heightDip = kInset + rows * kRowHeight + kInset + kFooterHeight;
+  for (const auto& item : items_) {
+    maxText = std::max(maxText, MeasureTextWidth(item, textFormat_.Get()));
+  }
+  const size_t rows = std::min(kRows, expanded_ ? kRows : items_.size());
+  if (expanded_) {
+    firstColumnWidth_ = kTextX - kInset + maxText + 20;
+    columnWidth_ = std::max(kMinColumnWidth, maxText + 2 * kCellTextPad);
+    widthDip_ = kInset + firstColumnWidth_ + (kExpandedColumns - 1) * columnWidth_ + kInset;
+  } else {
+    widthDip_ = std::max(kMinWidth, kTextX + maxText + 16 + kRightColumn);
+    firstColumnWidth_ = widthDip_ - 2 * kInset;
+    columnWidth_ = 0;
+  }
+  heightDip_ = kInset + rows * kRowHeight + kInset + kFooterHeight;
 
   const float s = Scale();
   int w = static_cast<int>(std::ceil(widthDip_ * s));
-  int h = static_cast<int>(std::ceil(heightDip * s));
+  int h = static_cast<int>(std::ceil(heightDip_ * s));
 
   MONITORINFO mi{sizeof(mi)};
   GetMonitorInfoW(monitor, &mi);
@@ -174,41 +214,70 @@ void CandidateWindow::MoveSelection(int delta) {
   InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
+void CandidateWindow::MoveColumn(int delta) {
+  if (!expanded_) {
+    MovePage(delta);
+    return;
+  }
+  MoveSelection(delta * static_cast<int>(kRows));
+}
+
 void CandidateWindow::MovePage(int delta) {
   if (items_.empty()) return;
-  long long page = static_cast<long long>(selection_ / kPageSize) + delta;
+  long long page = static_cast<long long>(selection_ / PageSize()) + delta;
   page = std::clamp<long long>(page, 0, static_cast<long long>(PageCount()) - 1);
-  selection_ = static_cast<size_t>(page) * kPageSize;
+  selection_ = static_cast<size_t>(page) * PageSize();
   InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 std::optional<size_t> CandidateWindow::IndexForDigit(int digit) const {
-  if (digit < 1 || digit > static_cast<int>(kPageSize)) return std::nullopt;
+  if (digit < 1 || digit > static_cast<int>(kRows)) return std::nullopt;
   size_t index = PageStart() + digit - 1;
   if (index >= items_.size()) return std::nullopt;
   return index;
 }
 
-int CandidateWindow::HitTestRow(POINT pt) const {
-  float y = pt.y / Scale() - kInset;
-  float x = pt.x / Scale();
-  if (y < 0 || x < kInset || x > widthDip_ - kInset) return -1;
-  int row = static_cast<int>(y / kRowHeight);
-  size_t index = PageStart() + row;
-  if (row >= static_cast<int>(kPageSize) || index >= items_.size()) return -1;
-  return row;
+D2D1_RECT_F CandidateWindow::CellRect(size_t offset) const {
+  const size_t col = offset / kRows;
+  const size_t row = offset % kRows;
+  const float top = kInset + row * kRowHeight;
+  const float left = kInset + (col == 0 ? 0 : firstColumnWidth_ + (col - 1) * columnWidth_);
+  const float width = col == 0 ? firstColumnWidth_ : columnWidth_;
+  return D2D1::RectF(left, top, left + width, top + kRowHeight);
 }
 
-int CandidateWindow::HitTestFooter(POINT pt) const {
-  RECT rc;
-  GetClientRect(hwnd_, &rc);
-  float y = pt.y / Scale();
-  float x = pt.x / Scale();
-  float footerTop = rc.bottom / Scale() - kFooterHeight;
-  if (y < footerTop) return 0;
-  if (x >= 4 && x < 24) return -1;
-  if (x >= 24 && x < 44) return 1;
-  return 0;
+int CandidateWindow::HitTestItem(POINT pt) const {
+  const float x = pt.x / Scale(), y = pt.y / Scale();
+  const size_t start = PageStart();
+  const size_t end = std::min(items_.size(), start + PageSize());
+  for (size_t i = start; i < end; ++i) {
+    if (Contains(CellRect(i - start), x, y)) return static_cast<int>(i);
+  }
+  return -1;
+}
+
+D2D1_RECT_F CandidateWindow::FooterButtonRect(FooterButton button) const {
+  const float top = heightDip_ - kFooterHeight + 4;
+  const float bottom = heightDip_ - 4;
+  switch (button) {
+    case FooterButton::Previous: return D2D1::RectF(4, top, 24, bottom);
+    case FooterButton::Next: return D2D1::RectF(24, top, 44, bottom);
+    case FooterButton::Expand:
+      return D2D1::RectF(widthDip_ - 4 - 2 * kButtonWidth, top, widthDip_ - 4 - kButtonWidth,
+                         bottom);
+    case FooterButton::Emoji:
+      return D2D1::RectF(widthDip_ - 4 - kButtonWidth, top, widthDip_ - 4, bottom);
+    default: return D2D1::RectF();
+  }
+}
+
+CandidateWindow::FooterButton CandidateWindow::HitTestFooter(POINT pt) const {
+  const float x = pt.x / Scale(), y = pt.y / Scale();
+  for (FooterButton b : {FooterButton::Previous, FooterButton::Next, FooterButton::Expand,
+                         FooterButton::Emoji}) {
+    if (Contains(FooterButtonRect(b), x, y)) return b;
+  }
+  return FooterButton::None;
 }
 
 void CandidateWindow::Paint() {
@@ -216,79 +285,129 @@ void CandidateWindow::Paint() {
   target_->BeginDraw();
   target_->Clear(theme_.background);
 
-  D2D1_SIZE_F size = target_->GetSize();
+  const D2D1_SIZE_F size = target_->GetSize();
   ComPtr<ID2D1SolidColorBrush> brush;
   target_->CreateSolidColorBrush(theme_.text, &brush);
 
   const size_t start = PageStart();
-  const size_t end = std::min(items_.size(), start + kPageSize);
+  const size_t end = std::min(items_.size(), start + PageSize());
   for (size_t i = start; i < end; ++i) {
-    const float top = kInset + (i - start) * kRowHeight;
-    D2D1_RECT_F row = D2D1::RectF(kInset, top, size.width - kInset, top + kRowHeight);
-    if (i == selection_ || static_cast<int>(i - start) == hoverRow_) {
+    const size_t offset = i - start;
+    const D2D1_RECT_F cell = CellRect(offset);
+    const bool firstColumn = offset < kRows;
+    if (i == selection_ || static_cast<int>(i) == hoverItem_) {
       brush->SetColor(i == selection_ ? theme_.selectedFill : theme_.hoverFill);
-      target_->FillRoundedRectangle(D2D1::RoundedRect(row, kRowRadius, kRowRadius), brush.Get());
+      target_->FillRoundedRectangle(D2D1::RoundedRect(cell, kCellRadius, kCellRadius),
+                                    brush.Get());
     }
     if (i == selection_) {
-      float mid = top + kRowHeight / 2;
-      D2D1_RECT_F pill = D2D1::RectF(kInset, mid - kPillHeight / 2, kInset + kPillWidth,
+      const float mid = (cell.top + cell.bottom) / 2;
+      D2D1_RECT_F pill = D2D1::RectF(cell.left, mid - kPillHeight / 2, cell.left + kPillWidth,
                                      mid + kPillHeight / 2);
       brush->SetColor(theme_.accent);
       target_->FillRoundedRectangle(D2D1::RoundedRect(pill, kPillWidth / 2, kPillWidth / 2),
                                     brush.Get());
     }
-    wchar_t number[2] = {static_cast<wchar_t>(L'1' + (i - start)), 0};
-    brush->SetColor(theme_.secondaryText);
-    target_->DrawText(number, 1, numberFormat_.Get(),
-                      D2D1::RectF(kNumberX, top, kTextX, top + kRowHeight), brush.Get());
+    float textX = cell.left + kCellTextPad;
+    if (firstColumn) {
+      wchar_t number[2] = {static_cast<wchar_t>(L'1' + offset), 0};
+      brush->SetColor(theme_.secondaryText);
+      target_->DrawText(number, 1, numberFormat_.Get(),
+                        D2D1::RectF(kNumberX, cell.top, kTextX, cell.bottom), brush.Get());
+      textX = kTextX;
+    }
+    const float textRight = expanded_ ? cell.right : cell.right - kRightColumn;
     brush->SetColor(theme_.text);
-    const std::wstring& text = items_[i];
-    DrawColorText(target_.Get(), text, textFormat_.Get(),
-                  D2D1::RectF(kTextX, top, row.right - kRightColumn, top + kRowHeight),
-                  brush.Get());
+    DrawColorText(target_.Get(), items_[i], textFormat_.Get(),
+                  D2D1::RectF(textX, cell.top, textRight, cell.bottom), brush.Get());
   }
 
-  // Page dots, vertically centered in the list area.
+  // List layout: page dots stacked in the right column, centered on the list.
   const size_t pages = PageCount();
-  if (pages > 1) {
-    const size_t shown = std::min<size_t>(pages, 5);
-    const size_t current = std::min(start / kPageSize, shown - 1);
-    const float listHeight = std::min(kPageSize, items_.size()) * kRowHeight;
+  if (!expanded_ && pages > 1) {
+    const size_t shown = std::min(pages, kMaxDots);
+    const size_t current = std::min(start / PageSize(), shown - 1);
+    const float listHeight = std::min(kRows, items_.size()) * kRowHeight;
     const float x = size.width - kRightColumn / 2 - 2;
     float y = kInset + listHeight / 2 - (shown - 1) * kDotSpacing / 2;
     for (size_t p = 0; p < shown; ++p, y += kDotSpacing) {
       brush->SetColor(p == current ? theme_.pageDotActive : theme_.pageDot);
-      float r = p == current ? kDotRadius + 0.5f : kDotRadius;
+      const float r = p == current ? kDotRadius + 0.5f : kDotRadius;
       target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(x, y), r, r), brush.Get());
     }
   }
 
-  // Footer: separator and paging arrows.
-  const float footerTop = size.height - kFooterHeight;
+  PaintFooter(brush.Get(), size.width, size.height);
+  if (target_->EndDraw() == D2DERR_RECREATE_TARGET) DiscardDeviceResources();
+}
+
+void CandidateWindow::PaintFooter(ID2D1SolidColorBrush* brush, float width, float height) {
+  const float footerTop = height - kFooterHeight;
+  const float footerMid = footerTop + kFooterHeight / 2;
   brush->SetColor(theme_.separator);
-  target_->DrawLine(D2D1::Point2F(0, footerTop), D2D1::Point2F(size.width, footerTop), brush.Get(),
+  target_->DrawLine(D2D1::Point2F(0, footerTop), D2D1::Point2F(width, footerTop), brush,
                     1.0f / Scale());
-  auto drawTriangle = [&](float cx, float cy, bool up, bool enabled) {
+
+  for (FooterButton b : {FooterButton::Previous, FooterButton::Next, FooterButton::Expand,
+                         FooterButton::Emoji}) {
+    if (b == hoverButton_) {
+      brush->SetColor(theme_.hoverFill);
+      target_->FillRoundedRectangle(
+          D2D1::RoundedRect(FooterButtonRect(b), kCellRadius, kCellRadius), brush);
+    }
+  }
+
+  // Paging arrows: ▲▼ for the list, ◀▶ when expanded.
+  const size_t start = PageStart();
+  const bool canPrev = start > 0;
+  const bool canNext = start + PageSize() < items_.size();
+  auto drawArrow = [&](float cx, int direction, bool enabled) {
+    // direction: 0 up, 1 down, 2 left, 3 right
     ComPtr<ID2D1PathGeometry> geo;
     D2DFactory()->CreatePathGeometry(&geo);
     ComPtr<ID2D1GeometrySink> sink;
     geo->Open(&sink);
-    float h = kArrowSize * 0.6f, w = kArrowSize / 2;
-    float tipY = up ? cy - h / 2 : cy + h / 2;
-    float baseY = up ? cy + h / 2 : cy - h / 2;
-    sink->BeginFigure(D2D1::Point2F(cx, tipY), D2D1_FIGURE_BEGIN_FILLED);
-    sink->AddLine(D2D1::Point2F(cx + w, baseY));
-    sink->AddLine(D2D1::Point2F(cx - w, baseY));
+    const float along = kArrowSize * 0.6f / 2, across = kArrowSize / 2;
+    D2D1_POINT_2F tip, a, b;
+    switch (direction) {
+      case 0: tip = {cx, footerMid - along}; a = {cx + across, footerMid + along};
+              b = {cx - across, footerMid + along}; break;
+      case 1: tip = {cx, footerMid + along}; a = {cx + across, footerMid - along};
+              b = {cx - across, footerMid - along}; break;
+      case 2: tip = {cx - along, footerMid}; a = {cx + along, footerMid - across};
+              b = {cx + along, footerMid + across}; break;
+      default: tip = {cx + along, footerMid}; a = {cx - along, footerMid - across};
+               b = {cx - along, footerMid + across}; break;
+    }
+    sink->BeginFigure(tip, D2D1_FIGURE_BEGIN_FILLED);
+    sink->AddLine(a);
+    sink->AddLine(b);
     sink->EndFigure(D2D1_FIGURE_END_CLOSED);
     sink->Close();
     brush->SetColor(enabled ? theme_.text : theme_.pageDot);
-    target_->FillGeometry(geo.Get(), brush.Get());
+    target_->FillGeometry(geo.Get(), brush);
   };
-  const float footerMid = footerTop + kFooterHeight / 2;
-  drawTriangle(14, footerMid, true, start > 0);
-  drawTriangle(34, footerMid, false, end < items_.size());
+  drawArrow(14, expanded_ ? 2 : 0, canPrev);
+  drawArrow(34, expanded_ ? 3 : 1, canNext);
 
-  if (target_->EndDraw() == D2DERR_RECREATE_TARGET) DiscardDeviceResources();
+  // Expanded layout: page dots centered in the footer.
+  const size_t pages = PageCount();
+  if (expanded_ && pages > 1) {
+    const size_t shown = std::min(pages, kMaxDots);
+    const size_t current = std::min(start / PageSize(), shown - 1);
+    float x = width / 2 - (shown - 1) * kDotSpacing / 2;
+    for (size_t p = 0; p < shown; ++p, x += kDotSpacing) {
+      brush->SetColor(p == current ? theme_.pageDotActive : theme_.pageDot);
+      const float r = p == current ? kDotRadius + 0.5f : kDotRadius;
+      target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(x, footerMid), r, r), brush);
+    }
+  }
+
+  brush->SetColor(theme_.text);
+  target_->DrawText(expanded_ ? kGlyphCollapse : kGlyphExpand, 1, iconFormat_.Get(),
+                    FooterButtonRect(FooterButton::Expand), brush);
+  target_->DrawText(kGlyphEmoji, 1, iconFormat_.Get(), FooterButtonRect(FooterButton::Emoji),
+                    brush);
 }
 
 LRESULT CALLBACK CandidateWindow::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -315,9 +434,11 @@ LRESULT CandidateWindow::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
       return TRUE;
     case WM_MOUSEMOVE: {
       POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
-      int row = HitTestRow(pt);
-      if (row != hoverRow_) {
-        hoverRow_ = row;
+      const int item = HitTestItem(pt);
+      const FooterButton button = HitTestFooter(pt);
+      if (item != hoverItem_ || button != hoverButton_) {
+        hoverItem_ = item;
+        hoverButton_ = button;
         InvalidateRect(hwnd_, nullptr, FALSE);
         TRACKMOUSEEVENT tme{sizeof(tme), TME_LEAVE, hwnd_, 0};
         TrackMouseEvent(&tme);
@@ -325,18 +446,26 @@ LRESULT CandidateWindow::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
       return 0;
     }
     case WM_MOUSELEAVE:
-      hoverRow_ = -1;
+      hoverItem_ = -1;
+      hoverButton_ = FooterButton::None;
       InvalidateRect(hwnd_, nullptr, FALSE);
       return 0;
     case WM_LBUTTONUP: {
       POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
-      int row = HitTestRow(pt);
-      if (row >= 0) {
-        size_t index = PageStart() + row;
-        if (onSelect_) onSelect_(index);
+      const int item = HitTestItem(pt);
+      if (item >= 0) {
+        if (handlers_.select) handlers_.select(static_cast<size_t>(item));
         return 0;
       }
-      if (int dir = HitTestFooter(pt)) MovePage(dir);
+      switch (HitTestFooter(pt)) {
+        case FooterButton::Previous: MovePage(-1); break;
+        case FooterButton::Next: MovePage(1); break;
+        case FooterButton::Expand: SetExpanded(!expanded_); break;
+        case FooterButton::Emoji:
+          if (handlers_.emoji) handlers_.emoji();
+          break;
+        default: break;
+      }
       return 0;
     }
     case WM_MOUSEWHEEL:

@@ -15,6 +15,7 @@ dependencies = [
     "numpy",
     "tqdm",
     "pillow>=12.3.0",
+    "fonttools>=4.67.0",
 ]
 
 [tool.uv]

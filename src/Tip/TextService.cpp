@@ -91,15 +91,18 @@ STDMETHODIMP TextService::ActivateEx(ITfThreadMgr* threadMgr, TfClientId clientI
     categoryMgr->RegisterGUID(GUID_DisplayAttributeError, &errorAttributeAtom_);
   }
 
-  candidateWindow_ = std::make_unique<CandidateWindow>([this](size_t index) {
-    // Mouse selection arrives outside a key event, so it needs its own edit session.
-    if (!compositionContext_) return;
-    ComPtr<ITfContext> context = compositionContext_;
-    EditSession::Request(context.Get(), clientId_, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE,
-                         [this, context, index](TfEditCookie ec) {
-                           SelectCandidate(context.Get(), ec, index);
-                           return S_OK;
-                         });
+  // Mouse actions arrive outside a key event, so they need their own edit sessions.
+  candidateWindow_ = std::make_unique<CandidateWindow>(CandidateWindow::Handlers{
+      [this](size_t index) {
+        if (!compositionContext_) return;
+        ComPtr<ITfContext> context = compositionContext_;
+        EditSession::Request(context.Get(), clientId_, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE,
+                             [this, context, index](TfEditCookie ec) {
+                               SelectCandidate(context.Get(), ec, index);
+                               return S_OK;
+                             });
+      },
+      [this] { OpenEmojiPanel(); },
   });
 
   // The taskbar button is optional; input still works without it.
