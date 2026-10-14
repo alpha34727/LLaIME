@@ -1,10 +1,10 @@
-// Privacy mode: password fields and private browsing windows. While active, the taskbar icon
-// shows a shield and nothing typed may be learned or logged.
+// Privacy mode: password fields and private browsing windows, decided solely by the field type
+// the app reports. While active, the taskbar icon shows a shield and nothing typed may be
+// learned or logged.
 #include <InputScope.h>
 
 #include <algorithm>
 #include <cwchar>
-#include <string>
 
 #include "EditSession.h"
 #include "TextService.h"
@@ -32,19 +32,13 @@ bool IsPrivateScope(InputScope scope) {
   }
 }
 
-bool InputScopesArePrivate(ITfContext* context, TfEditCookie ec) {
-  TF_SELECTION sel{};
-  ULONG fetched = 0;
-  ComPtr<ITfProperty> prop;
-  if (FAILED(context->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &sel, &fetched)) || !fetched) {
-    return false;
-  }
-  ComPtr<ITfRange> range;
-  range.Attach(sel.range);
-  if (FAILED(context->GetProperty(kPropInputScope, &prop))) return false;
+// Reads the input scopes the app reports for `range`. Apps backed by a text store (Firefox,
+// most TSF-aware apps) expose them as an app property through RequestSupportedAttrs; others
+// set them as a regular property. Try both.
+bool ScopesArePrivate(ITfReadOnlyProperty* prop, TfEditCookie ec, ITfRange* range) {
   VARIANT var;
   VariantInit(&var);
-  if (prop->GetValue(ec, range.Get(), &var) != S_OK || var.vt != VT_UNKNOWN || !var.punkVal) {
+  if (!prop || prop->GetValue(ec, range, &var) != S_OK || var.vt != VT_UNKNOWN || !var.punkVal) {
     VariantClear(&var);
     return false;
   }
@@ -62,22 +56,31 @@ bool InputScopesArePrivate(ITfContext* context, TfEditCookie ec) {
   return isPrivate;
 }
 
-// Fallbacks for hosts that do not report input scopes: Win32 password edits, and browser
-// windows whose title marks them as private.
-bool WindowIsPrivate(HWND hwnd) {
+bool InputScopesArePrivate(ITfContext* context, TfEditCookie ec) {
+  TF_SELECTION sel{};
+  ULONG fetched = 0;
+  if (FAILED(context->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &sel, &fetched)) || !fetched) {
+    return false;
+  }
+  ComPtr<ITfRange> range;
+  range.Attach(sel.range);
+
+  ComPtr<ITfReadOnlyProperty> appProp;
+  if (SUCCEEDED(context->GetAppProperty(kPropInputScope, &appProp)) &&
+      ScopesArePrivate(appProp.Get(), ec, range.Get())) {
+    return true;
+  }
+  ComPtr<ITfProperty> prop;
+  return SUCCEEDED(context->GetProperty(kPropInputScope, &prop)) &&
+         ScopesArePrivate(prop.Get(), ec, range.Get());
+}
+
+// Win32 Edit controls declare password fields with the ES_PASSWORD style instead.
+bool IsPasswordEdit(HWND hwnd) {
   if (!hwnd) return false;
   wchar_t cls[32] = {};
   GetClassNameW(hwnd, cls, 32);
-  if (_wcsicmp(cls, L"Edit") == 0 && (GetWindowLongW(hwnd, GWL_STYLE) & ES_PASSWORD)) return true;
-
-  HWND root = GetAncestor(hwnd, GA_ROOT);
-  wchar_t title[512] = {};
-  GetWindowTextW(root ? root : hwnd, title, 512);
-  const std::wstring t(title);
-  for (const wchar_t* marker : {L"InPrivate", L"Incognito", L"無痕", L"私密瀏覽"}) {
-    if (t.find(marker) != std::wstring::npos) return true;
-  }
-  return false;
+  return _wcsicmp(cls, L"Edit") == 0 && (GetWindowLongW(hwnd, GWL_STYLE) & ES_PASSWORD);
 }
 
 }  // namespace
@@ -88,7 +91,7 @@ void TextService::UpdatePrivacy(ITfContext* context, TfEditCookie ec) {
     ComPtr<ITfContextView> view;
     HWND hwnd = nullptr;
     if (SUCCEEDED(context->GetActiveView(&view))) view->GetWnd(&hwnd);
-    isPrivate = WindowIsPrivate(hwnd ? hwnd : GetFocus());
+    isPrivate = IsPasswordEdit(hwnd ? hwnd : GetFocus());
   }
   SetPrivateMode(isPrivate);
 }

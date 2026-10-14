@@ -39,7 +39,7 @@ std::wstring LookupPunctuation(const Lexicon* lexicon, wchar_t usChar,
   return {};
 }
 
-// Full-width punctuation for a US character (e.g. Shift+, -> ，).
+// Chinese punctuation for an unshifted non-Bopomofo key (e.g. ' -> 、, [ -> 「).
 std::wstring Punctuation(const Lexicon* lexicon, wchar_t usChar) {
   return LookupPunctuation(lexicon, usChar, {L"_punctuation_Standard_", L"_punctuation_"});
 }
@@ -142,9 +142,9 @@ KeyAction TextService::ClassifyKey(WPARAM vk) const {
     }
   }
   if (ch && ch != L' ') {
-    if (mods.shift && iswalpha(ch)) {
-      return MakeLiteral(fullShape_ ? ToFullWidth(ch) : std::wstring(1, ch));
-    }
+    // Shift+key types what a US keyboard types (Shift+/ ?, Shift+' "), like Microsoft
+    // Bopomofo; Ctrl+key gives Chinese punctuation instead.
+    if (mods.shift) return MakeLiteral(fullShape_ ? ToFullWidth(ch) : std::wstring(1, ch));
     if (std::wstring punct = Punctuation(lexicon_, ch); !punct.empty()) return MakeLiteral(punct);
   }
 
