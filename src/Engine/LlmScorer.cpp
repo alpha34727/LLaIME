@@ -1,6 +1,7 @@
 #include "LlmScorer.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <mutex>
 
@@ -10,14 +11,25 @@
 namespace llaime {
 namespace {
 
-// log-softmax value of `token` in `logits`.
-double LogProb(const float* logits, int vocabSize, int token) {
+// log(sum(exp(logits))) over the vocabulary; written so the compiler can vectorize it.
+float LogSumExp(const float* logits, int vocabSize) {
   float maxLogit = logits[0];
-  for (int i = 1; i < vocabSize; ++i) maxLogit = std::max(maxLogit, logits[i]);
-  double sum = 0;
-  for (int i = 0; i < vocabSize; ++i) sum += std::exp(static_cast<double>(logits[i] - maxLogit));
-  return static_cast<double>(logits[token] - maxLogit) - std::log(sum);
+  for (int i = 1; i < vocabSize; ++i) maxLogit = logits[i] > maxLogit ? logits[i] : maxLogit;
+  float sum = 0;
+  for (int i = 0; i < vocabSize; ++i) sum += std::exp(logits[i] - maxLogit);
+  return maxLogit + std::log(sum);
 }
+
+// Candidates as a token trie: shared prefixes are decoded once, with every candidate passing
+// through a node listed as one of its sequences.
+struct TrieNode {
+  int token;
+  int parent;  // -1: child of the context
+  int depth;
+  std::vector<llama_seq_id> seqs;
+  bool hasChildren = false;
+  int batchIndex = -1;
+};
 
 void Silence(ggml_log_level level, const char* text, void*) {
   // Keep llama.cpp quiet except for errors.
@@ -166,45 +178,93 @@ std::vector<double> LlmScorer::Score(const std::string& context,
   if (!context_ || candidates.empty()) return {};
   const size_t count = std::min(candidates.size(), static_cast<size_t>(options_.maxCandidates));
 
+  using Clock = std::chrono::steady_clock;
+  auto ms = [](Clock::time_point a, Clock::time_point b) {
+    return std::chrono::duration<double, std::milli>(b - a).count();
+  };
+  timing_ = {};
+  const auto t0 = Clock::now();
   // BOS (when the model uses one) starts the context; candidates continue it.
   std::vector<int> contextTokens = Tokenize(context, true);
   if (contextTokens.empty()) return {};
   if (!DecodeContext(contextTokens)) return {};
+  const auto t1 = Clock::now();
+  timing_.context = ms(t0, t1);
 
   llama_memory_t mem = llama_get_memory(context_);
   std::vector<std::vector<int>> candTokens(count);
-  int total = 0;
   for (size_t k = 0; k < count; ++k) {
     candTokens[k] = Tokenize(candidates[k], false);
-    total += static_cast<int>(candTokens[k].size());
     llama_memory_seq_rm(mem, static_cast<llama_seq_id>(k + 1), -1, -1);
     llama_memory_seq_cp(mem, 0, static_cast<llama_seq_id>(k + 1), -1, -1);
   }
 
-  llama_batch batch = llama_batch_init(total, 0, 1);
-  std::vector<int> firstIndex(count);
-  const llama_pos base = static_cast<llama_pos>(contextTokens.size());
+  // Build the trie; path[k] lists the nodes of candidate k.
+  std::vector<TrieNode> nodes;
+  std::vector<std::vector<int>> path(count);
   for (size_t k = 0; k < count; ++k) {
-    firstIndex[k] = batch.n_tokens;
+    int parent = -1;
     for (size_t t = 0; t < candTokens[k].size(); ++t) {
-      const int j = batch.n_tokens++;
-      batch.token[j] = candTokens[k][t];
-      batch.pos[j] = base + static_cast<llama_pos>(t);
-      batch.n_seq_id[j] = 1;
-      batch.seq_id[j][0] = static_cast<llama_seq_id>(k + 1);
-      // Logits at token t predict token t+1; the last token's prediction is not needed.
-      batch.logits[j] = t + 1 < candTokens[k].size();
+      int found = -1;
+      for (size_t n = 0; n < nodes.size(); ++n) {
+        if (nodes[n].parent == parent && nodes[n].token == candTokens[k][t]) {
+          found = static_cast<int>(n);
+          break;
+        }
+      }
+      if (found < 0) {
+        nodes.push_back({candTokens[k][t], parent, static_cast<int>(t), {}});
+        found = static_cast<int>(nodes.size()) - 1;
+        if (parent >= 0) nodes[parent].hasChildren = true;
+      }
+      nodes[found].seqs.push_back(static_cast<llama_seq_id>(k + 1));
+      path[k].push_back(found);
+      parent = found;
     }
+  }
+
+  llama_batch batch = llama_batch_init(static_cast<int32_t>(nodes.size()), 0,
+                                       static_cast<int32_t>(count));
+  const llama_pos base = static_cast<llama_pos>(contextTokens.size());
+  for (TrieNode& node : nodes) {
+    const int j = batch.n_tokens++;
+    node.batchIndex = j;
+    batch.token[j] = node.token;
+    batch.pos[j] = base + node.depth;
+    batch.n_seq_id[j] = static_cast<int32_t>(node.seqs.size());
+    for (size_t q = 0; q < node.seqs.size(); ++q) batch.seq_id[j][q] = node.seqs[q];
+    // A node's logits predict its children.
+    batch.logits[j] = node.hasChildren;
   }
   std::vector<double> scores(count, 0.0);
   const bool ok = llama_decode(context_, batch) == 0;
+  // Logits are read back lazily; force completion before timing the softmax.
+  if (ok) llama_synchronize(context_);
+  const auto t2 = Clock::now();
+  timing_.candidates = ms(t1, t2);
+  timing_.batchTokens = batch.n_tokens;
   if (ok) {
+    // One log-sum-exp per distinct prediction row: the context row plus internal nodes.
+    const float contextLse = LogSumExp(contextLogits_.data(), vocabSize_);
+    std::vector<float> nodeLse(nodes.size(), 0);
+    for (const TrieNode& node : nodes) {
+      if (node.hasChildren) {
+        nodeLse[&node - nodes.data()] =
+            LogSumExp(llama_get_logits_ith(context_, node.batchIndex), vocabSize_);
+      }
+    }
+    timing_.softmax = ms(t2, Clock::now());
+    for (const TrieNode& node : nodes) timing_.softmaxRows += node.hasChildren;
     for (size_t k = 0; k < count; ++k) {
-      if (candTokens[k].empty()) continue;
-      double s = LogProb(contextLogits_.data(), vocabSize_, candTokens[k][0]);
-      for (size_t t = 1; t < candTokens[k].size(); ++t) {
-        const float* logits = llama_get_logits_ith(context_, firstIndex[k] + static_cast<int>(t) - 1);
-        s += LogProb(logits, vocabSize_, candTokens[k][t]);
+      double s = 0;
+      for (size_t t = 0; t < path[k].size(); ++t) {
+        const TrieNode& node = nodes[path[k][t]];
+        if (node.parent < 0) {
+          s += contextLogits_[node.token] - contextLse;
+        } else {
+          const TrieNode& parent = nodes[node.parent];
+          s += llama_get_logits_ith(context_, parent.batchIndex)[node.token] - nodeLse[node.parent];
+        }
       }
       scores[k] = s;
     }

@@ -73,4 +73,14 @@ cmake --build $buildDir --config $Configuration
 if ($LASTEXITCODE -ne 0) { throw 'build failed' }
 cmake --install $buildDir --config $Configuration
 if ($LASTEXITCODE -ne 0) { throw 'install failed' }
+
+# ggml-cuda.dll needs the CUDA runtime and cuBLAS; ship them next to it (redistributable per
+# the CUDA EULA) so it never picks up a different toolkit version from PATH.
+if (-not $NoCuda) {
+  $cudaBin = Join-Path $cudaPath 'bin/x64'
+  if (-not (Test-Path $cudaBin)) { $cudaBin = Join-Path $cudaPath 'bin' }
+  foreach ($pattern in 'cudart64_*.dll', 'cublas64_*.dll', 'cublasLt64_*.dll') {
+    Get-ChildItem $cudaBin -Filter $pattern | Copy-Item -Destination (Join-Path $installDir 'bin') -Force
+  }
+}
 Write-Host "llama.cpp installed to $installDir"

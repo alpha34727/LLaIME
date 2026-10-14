@@ -19,6 +19,7 @@
 #include "LlmScorer.h"
 #include "llaime/Composer.h"
 #include "llaime/Lexicon.h"
+#include "llaime/TaiwanUsage.h"
 
 using namespace llaime;
 
@@ -156,10 +157,12 @@ int main(int argc, char** argv) {
   struct Result {
     std::vector<std::wstring> texts;
     std::vector<double> lex, lm;
+    std::vector<int> variants;  // non-Taiwan-standard spellings per candidate
     int truth = -1;
   };
   std::vector<Result> results;
   std::vector<double> latencyMs;
+  LlmScorer::Timing timingSum;
   size_t baselineCorrect = 0, baselineChars = 0, totalChars = 0;
 
   std::ofstream dump;
@@ -179,6 +182,7 @@ int main(int argc, char** argv) {
     for (const Sentence& s : composer.NBest(k)) {
       r.texts.push_back(s.Text());
       r.lex.push_back(s.score);
+      r.variants.push_back(CountNonTaiwanVariants(s.Text()));
       candidates.push_back(ToUtf8(s.Text()));
       if (s.Text() == truth) r.truth = static_cast<int>(r.texts.size()) - 1;
     }
@@ -190,6 +194,12 @@ int main(int argc, char** argv) {
           std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
               .count());
       if (r.lm.size() != r.texts.size()) r.lm.assign(r.texts.size(), 0.0);
+      const auto& t = scorer.LastTiming();
+      timingSum.context += t.context;
+      timingSum.candidates += t.candidates;
+      timingSum.softmax += t.softmax;
+      timingSum.batchTokens += t.batchTokens;
+      timingSum.softmaxRows += t.softmaxRows;
     }
     if (dump) {
       dump << row.id << '\t' << row.text << '\t' << ToUtf8(baseline) << '\t' << r.truth;
@@ -211,31 +221,40 @@ int main(int argc, char** argv) {
   printf("oracle@%zu    sentence %.1f%%\n", k, 100 * oracle / n);
 
   if (useModel) {
-    // Combined score: LM log-prob + weight * lexicon log-prob (converted to natural log).
-    double bestWeight = 0, bestAcc = -1;
-    for (double weight : {0.0, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0}) {
-      size_t correct = 0;
-      for (const auto& r : results) {
-        size_t pick = 0;
-        double best = -1e300;
-        for (size_t i = 0; i < r.texts.size(); ++i) {
-          double s = r.lm[i] + weight * r.lex[i] * std::log(10.0);
-          if (s > best) {
-            best = s;
-            pick = i;
+    // Combined score: LM log-prob + weight * lexicon log-prob (converted to natural log)
+    // - penalty per non-Taiwan-standard spelling.
+    double bestWeight = 0, bestPenalty = 0, bestAcc = -1;
+    for (double penalty : {0.0, 2.0, 4.0, 8.0}) {
+      printf("penalty %.0f:", penalty);
+      for (double weight : {0.0, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0}) {
+        size_t correct = 0;
+        for (const auto& r : results) {
+          size_t pick = 0;
+          double best = -1e300;
+          for (size_t i = 0; i < r.texts.size(); ++i) {
+            double s = r.lm[i] + weight * r.lex[i] * std::log(10.0) - penalty * r.variants[i];
+            if (s > best) {
+              best = s;
+              pick = i;
+            }
           }
+          correct += static_cast<int>(pick) == r.truth;
         }
-        correct += static_cast<int>(pick) == r.truth;
+        printf("  w%.2f %.1f%%", weight, 100 * correct / n);
+        if (correct > bestAcc) {
+          bestAcc = static_cast<double>(correct);
+          bestWeight = weight;
+          bestPenalty = penalty;
+        }
       }
-      printf("lm+%.2f*lex  sentence %.1f%%\n", weight, 100 * correct / n);
-      if (correct > bestAcc) {
-        bestAcc = static_cast<double>(correct);
-        bestWeight = weight;
-      }
+      printf("\n");
     }
-    printf("best weight %.2f -> %.1f%%\n", bestWeight, 100 * bestAcc / n);
+    printf("best weight %.2f penalty %.0f -> %.1f%%\n", bestWeight, bestPenalty, 100 * bestAcc / n);
     printf("latency ms  p50 %.1f  p95 %.1f  max %.1f\n", Percentile(latencyMs, 0.5),
            Percentile(latencyMs, 0.95), Percentile(latencyMs, 1.0));
+    printf("avg ms: context %.1f  candidates %.1f  softmax %.1f  (batch %.0f tokens, %.0f rows)\n",
+           timingSum.context / n, timingSum.candidates / n, timingSum.softmax / n,
+           timingSum.batchTokens / n, timingSum.softmaxRows / n);
   }
   return 0;
 }

@@ -75,6 +75,7 @@ bool TextService::StartComposition(ITfContext* context, TfEditCookie ec) {
   // Re-check privacy at the start of every composition: focus events alone miss changes
   // inside one document (e.g. moving between a search box and a password box in a page).
   UpdatePrivacy(context, ec);
+  ReadContextBefore(context, ec, range.Get());
   return true;
 }
 
@@ -255,6 +256,7 @@ void TextService::SelectCandidate(ITfContext* context, TfEditCookie ec, size_t i
   composer_.Select(candidates_[index]);
   CloseCandidates();
   UpdateComposition(context, ec);
+  RequestRanking();
 }
 
 void TextService::OpenEmojiPanel() {

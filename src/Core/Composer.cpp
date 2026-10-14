@@ -223,6 +223,11 @@ std::vector<Sentence> Composer::NBest(size_t k, size_t perSpan) const {
   return out;
 }
 
+void Composer::SetPreferred(const Sentence& sentence) {
+  walk_ = sentence.nodes;
+  walkValid_ = true;
+}
+
 std::wstring Composer::Text() const {
   std::wstring text;
   for (const Node& node : Walk()) text += node.text;

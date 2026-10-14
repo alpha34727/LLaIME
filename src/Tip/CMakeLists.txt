@@ -23,6 +23,8 @@ add_library(LLaIME.Tip SHARED
   DisplayAttribute.cpp
   LangBarButton.cpp
   Privacy.cpp
+  EngineClient.cpp
+  Ranking.cpp
   Tip.def
   Tip.rc
 )

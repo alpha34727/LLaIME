@@ -109,3 +109,18 @@ TEST(Composer, NBestDistinctTexts) {
     for (size_t j = i + 1; j < best.size(); ++j) EXPECT_NE(best[i].Text(), best[j].Text());
   }
 }
+
+TEST(Composer, PreferredLastsUntilNextEdit) {
+  auto c = Compose({L"ㄧˋ", L"ㄧˋ"});
+  const uint64_t generation = c.generation();
+  auto best = c.NBest(8);
+  auto alt = std::find_if(best.begin(), best.end(),
+                          [](const Sentence& s) { return s.Text() == L"異議"; });
+  ASSERT_NE(alt, best.end());
+  c.SetPreferred(*alt);
+  EXPECT_EQ(c.generation(), generation);
+  EXPECT_EQ(c.Text(), L"異議");
+  c.InsertSyllable(*Syllable::Parse(L"ㄉㄜ˙"));
+  EXPECT_NE(c.generation(), generation);
+  EXPECT_EQ(c.Text().substr(0, 2), L"意義");
+}

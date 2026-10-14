@@ -279,6 +279,7 @@ void TextService::HandleAction(ITfContext* context, TfEditCookie ec, const KeyAc
       return;
   }
   UpdateComposition(context, ec);
+  RequestRanking();
 }
 
 STDMETHODIMP TextService::OnSetFocus(BOOL) { return S_OK; }

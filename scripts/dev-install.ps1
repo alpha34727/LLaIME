@@ -7,11 +7,15 @@
   so the old file is renamed aside first. Self-elevates via UAC.
 .PARAMETER Configuration
   Debug or Release.
+.PARAMETER Model
+  GGUF file under models\ that the engine loads (written to %LOCALAPPDATA%\LLaIME\engine.ini
+  unless that file already exists).
 .PARAMETER Uninstall
   Unregister and remove the installed DLLs.
 #>
 param(
   [ValidateSet('Debug', 'Release')] [string] $Configuration = 'Debug',
+  [string] $Model = 'Qwen3.5-2B-Q4_K_M.gguf',
   [switch] $Uninstall
 )
 
@@ -19,7 +23,7 @@ $ErrorActionPreference = 'Stop'
 
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-  $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Configuration', $Configuration)
+  $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Configuration', $Configuration, '-Model', $Model)
   if ($Uninstall) { $argList += '-Uninstall' }
   $proc = Start-Process powershell -Verb RunAs -ArgumentList $argList -Wait -PassThru
   exit $proc.ExitCode
@@ -27,6 +31,9 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 
 $repo = Split-Path -Parent $PSScriptRoot
 $installRoot = Join-Path $env:ProgramFiles 'LLaIME'
+# The engine holds its files open; stop it before replacing or removing them.
+Get-Process LLaIME.Engine -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Milliseconds 300
 $targets = @(
   @{ Arch = 'x64'; RegSvr = "$env:WINDIR\System32\regsvr32.exe" },
   @{ Arch = 'x86'; RegSvr = "$env:WINDIR\SysWOW64\regsvr32.exe" }
@@ -78,4 +85,25 @@ if ($Uninstall) {
   if (Test-Path $dest) { Rename-Item $dest ("lexicon.bin.old" + [DateTime]::Now.ToString('yyyyMMddHHmmss')) }
   Copy-Item $lexicon $dest
   Write-Host "Installed $dest"
+
+  # Engine (always the Release build: it runs the model) and llama.cpp / CUDA DLLs.
+  $engineSrc = Join-Path $repo 'build/x64/src/Engine/Release'
+  $engineDir = Join-Path $installRoot 'engine'
+  if (Test-Path (Join-Path $engineSrc 'LLaIME.Engine.exe')) {
+    New-Item -ItemType Directory -Force $engineDir | Out-Null
+    Copy-Item (Join-Path $engineSrc 'LLaIME.Engine.exe') $engineDir -Force
+    Copy-Item (Join-Path $engineSrc '*.dll') $engineDir -Force
+    Write-Host "Installed engine to $engineDir"
+
+    $settingsDir = Join-Path $env:LOCALAPPDATA 'LLaIME'
+    $ini = Join-Path $settingsDir 'engine.ini'
+    if (-not (Test-Path $ini)) {
+      New-Item -ItemType Directory -Force $settingsDir | Out-Null
+      $modelPath = Join-Path $repo "models\$Model"
+      Set-Content -Path $ini -Encoding Unicode -Value "[model]`r`npath=$modelPath`r`ndevice=auto"
+      Write-Host "Wrote $ini (model: $modelPath)"
+    }
+  } else {
+    Write-Warning "Engine not built ($engineSrc); typing works with the lexicon only."
+  }
 }

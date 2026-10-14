@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -60,6 +61,13 @@ class Composer {
   // Pins apply as in Walk(). Used to give the language model alternatives to rank.
   std::vector<Sentence> NBest(size_t k, size_t perSpan = 4) const;
   std::wstring Text() const;
+
+  // Bumped by every edit; a ranking result applies only to the generation it was computed for.
+  uint64_t generation() const { return generation_; }
+  // Shows `sentence` (one of NBest()) as the conversion until the next edit. Unlike Select(),
+  // nothing is pinned: further typing is converted afresh.
+  void SetPreferred(const Sentence& sentence);
+
   // Character offset in Text() of the boundary before element `index`.
   size_t TextOffsetOf(size_t index) const;
 
@@ -90,13 +98,17 @@ class Composer {
   const Pin* PinFor(size_t start, size_t length, bool* conflicts) const;
   void OnInserted(size_t pos);
   void OnErased(size_t pos);
-  void Invalidate() { walkValid_ = false; }
+  void Invalidate() {
+    walkValid_ = false;
+    ++generation_;
+  }
 
   const Lexicon* lexicon_;
   std::vector<Element> elements_;
   std::vector<Pin> pins_;
   size_t cursor_ = 0;
 
+  uint64_t generation_ = 0;
   mutable std::vector<Node> walk_;
   mutable bool walkValid_ = false;
 };

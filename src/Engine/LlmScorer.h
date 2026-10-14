@@ -46,6 +46,16 @@ class LlmScorer {
   // Returns an empty vector on failure.
   std::vector<double> Score(const std::string& context, const std::vector<std::string>& candidates);
 
+  // Where the last Score() call spent its time, in milliseconds.
+  struct Timing {
+    double context = 0;     // tokenizing and decoding the context
+    double candidates = 0;  // decoding the candidate trie
+    double softmax = 0;     // log-sum-exp over the vocabulary
+    int batchTokens = 0;
+    int softmaxRows = 0;
+  };
+  const Timing& LastTiming() const { return timing_; }
+
  private:
   std::vector<int> Tokenize(const std::string& text, bool addSpecial) const;
   bool DecodeContext(const std::vector<int>& tokens);
@@ -57,6 +67,7 @@ class LlmScorer {
   int vocabSize_ = 0;
   std::vector<int> cachedContext_;  // tokens currently held by sequence 0
   std::vector<float> contextLogits_;  // logits after the last context token
+  Timing timing_;
 };
 
 }  // namespace llaime

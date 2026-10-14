@@ -1,0 +1,238 @@
+// LLaIME.Engine.exe: per-user background process that ranks conversion candidates with a local
+// language model for every app's TIP, over a named pipe.
+//
+// Settings: %LOCALAPPDATA%\LLaIME\engine.ini
+//   [model]
+//   path=C:\...\Qwen3.5-0.8B-Q8_0.gguf
+//   device=auto          ; auto, CPU, CUDA0, Vulkan0, ...
+// Command line overrides: --model <path> --device <name>
+#include <windows.h>
+#include <sddl.h>
+#include <shlobj.h>
+
+#include <atomic>
+#include <cstdio>
+#include <list>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <unordered_map>
+#include <vector>
+
+#include "LlmScorer.h"
+#include "llaime/Protocol.h"
+
+using namespace llaime;
+namespace proto = llaime::protocol;
+
+namespace {
+
+constexpr DWORD kPipeBuffer = 64 * 1024;
+// Fixed preamble that steers the model toward Taiwan Traditional Chinese usage.
+constexpr char kPromptPrefix[] = "以下是一段台灣繁體中文的文字：\n";
+constexpr size_t kCacheEntries = 256;
+
+std::string ToUtf8(const std::wstring& s) {
+  if (s.empty()) return {};
+  int n = WideCharToMultiByte(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0,
+                              nullptr, nullptr);
+  std::string out(n, '\0');
+  WideCharToMultiByte(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), out.data(), n, nullptr,
+                      nullptr);
+  return out;
+}
+
+std::wstring ExeDir() {
+  wchar_t path[MAX_PATH];
+  GetModuleFileNameW(nullptr, path, MAX_PATH);
+  std::wstring p(path);
+  return p.substr(0, p.find_last_of(L"\\/"));
+}
+
+std::wstring SettingsPath() {
+  PWSTR local = nullptr;
+  std::wstring path;
+  if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &local))) {
+    path = std::wstring(local) + L"\\LLaIME\\engine.ini";
+    CoTaskMemFree(local);
+  }
+  return path;
+}
+
+std::wstring ReadSetting(const wchar_t* section, const wchar_t* key, const wchar_t* fallback) {
+  wchar_t buf[1024];
+  GetPrivateProfileStringW(section, key, fallback, buf, 1024, SettingsPath().c_str());
+  return buf;
+}
+
+// Scores are pure functions of (context, candidates), so repeated requests (the same keystroke
+// state re-sent, Backspace then retype) are answered from a small LRU cache. Requests from
+// private fields are never cached.
+class ScoreCache {
+ public:
+  bool Get(const std::wstring& key, std::vector<double>* scores) {
+    auto it = map_.find(key);
+    if (it == map_.end()) return false;
+    order_.splice(order_.begin(), order_, it->second.second);
+    *scores = it->second.first;
+    return true;
+  }
+  void Put(const std::wstring& key, std::vector<double> scores) {
+    if (map_.count(key)) return;
+    order_.push_front(key);
+    map_[key] = {std::move(scores), order_.begin()};
+    if (map_.size() > kCacheEntries) {
+      map_.erase(order_.back());
+      order_.pop_back();
+    }
+  }
+
+ private:
+  std::list<std::wstring> order_;
+  std::unordered_map<std::wstring, std::pair<std::vector<double>, std::list<std::wstring>::iterator>>
+      map_;
+};
+
+class Engine {
+ public:
+  bool Start(const std::wstring& model, const std::wstring& device) {
+    LlmScorer::LoadBackends(ToUtf8(ExeDir()));
+    LlmScorer::Options options;
+    options.modelPath = ToUtf8(model);
+    options.device = ToUtf8(device);
+    options.maxCandidates = 16;
+    std::string error;
+    modelName_ = model.substr(model.find_last_of(L"\\/") + 1);
+    deviceName_ = device;
+    if (!scorer_.Load(options, &error)) {
+      fprintf(stderr, "model load failed: %s\n", error.c_str());
+      return false;
+    }
+    // The first decode allocates GPU buffers and compiles kernels; do it now rather than on
+    // the user's first keystroke.
+    scorer_.Score(kPromptPrefix, {"暖機", "暖身"});
+    return true;
+  }
+
+  std::vector<uint8_t> Handle(const std::vector<uint8_t>& message) {
+    proto::Reader in(message.data(), message.size());
+    auto type = in.Header();
+    if (type == proto::MessageType::StatusRequest) {
+      proto::StatusResponse status{scorer_.IsLoaded(), modelName_, deviceName_};
+      return proto::Encode(status);
+    }
+    proto::RankResponse response;
+    proto::RankRequest request;
+    if (type != proto::MessageType::RankRequest || !proto::Decode(in, &request)) {
+      return proto::Encode(response);
+    }
+    response.requestId = request.requestId;
+
+    std::wstring key = request.context;
+    for (const auto& c : request.candidates) key += L'\x1f' + c;
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!request.privateMode && cache_.Get(key, &response.scores)) {
+      response.ok = true;
+      return proto::Encode(response);
+    }
+    std::vector<std::string> candidates;
+    for (const auto& c : request.candidates) candidates.push_back(ToUtf8(c));
+    response.scores = scorer_.Score(kPromptPrefix + ToUtf8(request.context), candidates);
+    response.ok = response.scores.size() == request.candidates.size();
+    if (response.ok && !request.privateMode) cache_.Put(key, response.scores);
+    return proto::Encode(response);
+  }
+
+ private:
+  LlmScorer scorer_;
+  std::mutex mutex_;  // one llama context: requests are scored one at a time
+  ScoreCache cache_;
+  std::wstring modelName_, deviceName_;
+};
+
+// Lets the user's own processes connect, including AppContainer apps (ALL APPLICATION
+// PACKAGES) and low-integrity processes.
+bool MakePipeSecurity(const std::wstring& sid, SECURITY_ATTRIBUTES* sa, PSECURITY_DESCRIPTOR* sd) {
+  const std::wstring sddl =
+      L"D:P(A;;GA;;;SY)(A;;GA;;;" + sid + L")(A;;GRGW;;;AC)S:(ML;;NW;;;LW)";
+  if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(), SDDL_REVISION_1, sd,
+                                                            nullptr)) {
+    return false;
+  }
+  sa->nLength = sizeof(*sa);
+  sa->lpSecurityDescriptor = *sd;
+  sa->bInheritHandle = FALSE;
+  return true;
+}
+
+void ServeClient(Engine* engine, HANDLE pipe) {
+  std::vector<uint8_t> buffer(kPipeBuffer);
+  for (;;) {
+    std::vector<uint8_t> message;
+    DWORD read = 0;
+    BOOL ok;
+    do {
+      ok = ReadFile(pipe, buffer.data(), static_cast<DWORD>(buffer.size()), &read, nullptr);
+      if (!ok && GetLastError() != ERROR_MORE_DATA) {
+        DisconnectNamedPipe(pipe);
+        CloseHandle(pipe);
+        return;
+      }
+      message.insert(message.end(), buffer.begin(), buffer.begin() + read);
+    } while (!ok);
+    const auto reply = engine->Handle(message);
+    DWORD written = 0;
+    if (!WriteFile(pipe, reply.data(), static_cast<DWORD>(reply.size()), &written, nullptr)) {
+      DisconnectNamedPipe(pipe);
+      CloseHandle(pipe);
+      return;
+    }
+  }
+}
+
+}  // namespace
+
+int wmain(int argc, wchar_t** argv) {
+  SetConsoleOutputCP(CP_UTF8);
+  std::wstring model = ReadSetting(L"model", L"path", L"");
+  std::wstring device = ReadSetting(L"model", L"device", L"auto");
+  for (int i = 1; i + 1 < argc; i += 2) {
+    std::wstring key = argv[i];
+    if (key == L"--model") model = argv[i + 1];
+    if (key == L"--device") device = argv[i + 1];
+  }
+
+  const std::wstring sid = proto::CurrentUserSid();
+  // One engine per user session; the mutex is held for the life of the process.
+  CreateMutexW(nullptr, TRUE, (L"Local\\LLaIME.Engine." + sid).c_str());
+  if (GetLastError() == ERROR_ALREADY_EXISTS) return 0;
+
+  if (model.empty()) {
+    fprintf(stderr, "no model configured (%ls)\n", SettingsPath().c_str());
+    return 1;
+  }
+  Engine engine;
+  if (!engine.Start(model, device)) return 1;
+  fprintf(stderr, "LLaIME engine ready: %ls on %ls\n", model.c_str(), device.c_str());
+
+  SECURITY_ATTRIBUTES sa{};
+  PSECURITY_DESCRIPTOR sd = nullptr;
+  if (!MakePipeSecurity(sid, &sa, &sd)) return 1;
+  const std::wstring pipeName = proto::PipeName(sid);
+  for (;;) {
+    HANDLE pipe = CreateNamedPipeW(
+        pipeName.c_str(), PIPE_ACCESS_DUPLEX,
+        PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+        PIPE_UNLIMITED_INSTANCES, kPipeBuffer, kPipeBuffer, 0, &sa);
+    if (pipe == INVALID_HANDLE_VALUE) {
+      Sleep(1000);
+      continue;
+    }
+    if (ConnectNamedPipe(pipe, nullptr) || GetLastError() == ERROR_PIPE_CONNECTED) {
+      std::thread(ServeClient, &engine, pipe).detach();
+    } else {
+      CloseHandle(pipe);
+    }
+  }
+  // Serves until the process is ended (logoff, or the installer stopping it).
+}

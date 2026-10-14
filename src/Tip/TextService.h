@@ -8,12 +8,14 @@
 
 #include "llaime/BopomofoReading.h"
 #include "llaime/Composer.h"
+#include "llaime/Protocol.h"
 
 namespace llaime {
 
 class CandidateWindow;
 class LangBarButton;
 class ThemeWatcher;
+class EngineClient;
 
 // What a key press does, decided in OnTestKeyDown and carried out in OnKeyDown.
 struct KeyAction {
@@ -121,6 +123,11 @@ class TextService final : public ITfTextInputProcessorEx,
   void SetPrivateMode(bool isPrivate);
   bool IsPrivateMode() const { return privateMode_; }
 
+  // Language-model reranking (Ranking.cpp)
+  void ReadContextBefore(ITfContext* context, TfEditCookie ec, ITfRange* compositionRange);
+  void RequestRanking();
+  void OnRankResponse(const protocol::RankResponse& response);
+
   // Key handling (KeyEventSink.cpp)
   KeyAction ClassifyKey(WPARAM vk) const;
   HRESULT ExecuteKeyAction(ITfContext* context, const KeyAction& action);
@@ -171,6 +178,12 @@ class TextService final : public ITfTextInputProcessorEx,
   std::unique_ptr<CandidateWindow> candidateWindow_;
   LangBarButton* langBarButton_ = nullptr;
   std::unique_ptr<ThemeWatcher> themeWatcher_;  // refreshes the 中/英 icon on theme change
+
+  std::unique_ptr<EngineClient> engine_;
+  uint32_t lastRequestId_ = 0;
+  uint64_t rankedGeneration_ = 0;
+  std::vector<Sentence> rankedSentences_;
+  std::wstring contextText_;  // document text before the composition
 
   Microsoft::WRL::ComPtr<ITfComposition> composition_;
   Microsoft::WRL::ComPtr<ITfContext> compositionContext_;

@@ -7,6 +7,7 @@
 #include "EditSession.h"
 #include "Globals.h"
 #include "ui/CandidateWindow.h"
+#include "EngineClient.h"
 #include "ui/ThemeWatcher.h"
 
 using Microsoft::WRL::ComPtr;
@@ -105,6 +106,9 @@ STDMETHODIMP TextService::ActivateEx(ITfThreadMgr* threadMgr, TfClientId clientI
       [this] { OpenEmojiPanel(); },
   });
 
+  engine_ = std::make_unique<EngineClient>(
+      [this](const protocol::RankResponse& response) { OnRankResponse(response); });
+
   // The taskbar button is optional; input still works without it.
   InitLangBar();
   if (!InitThreadMgrEventSink() || !InitKeyEventSink() || !InitInputMode()) {
@@ -126,6 +130,7 @@ STDMETHODIMP TextService::Deactivate() {
                          });
   }
   ResetState();
+  engine_.reset();
   candidateWindow_.reset();
   UninitInputMode();
   UninitLangBar();

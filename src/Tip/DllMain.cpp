@@ -1,6 +1,7 @@
 #include "ClassFactory.h"
 #include "Globals.h"
 #include "Register.h"
+#include "EngineClient.h"
 #include "ui/CandidateWindow.h"
 #include "ui/PopupMenu.h"
 #include "ui/ThemeWatcher.h"
@@ -31,6 +32,7 @@ STDAPI DllCanUnloadNow() {
   CandidateWindow::UnregisterClass();
   UnregisterPopupMenuClass();
   ThemeWatcher::UnregisterClass();
+  EngineClient::UnregisterClass();
   return S_OK;
 }
 
