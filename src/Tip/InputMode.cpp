@@ -94,6 +94,12 @@ void TextService::WriteConversionMode() {
   if (langBarButton_) langBarButton_->Refresh();
 }
 
+void TextService::SetPrivateMode(bool isPrivate) {
+  if (privateMode_ == isPrivate) return;
+  privateMode_ = isPrivate;
+  if (langBarButton_) langBarButton_->Refresh();
+}
+
 void TextService::ToggleChineseFromUi() {
   if (chineseMode_ && IsComposing() && compositionContext_) {
     ComPtr<ITfContext> context = compositionContext_;
@@ -112,6 +118,7 @@ bool TextService::InitLangBar() {
   langBarButton_ = new LangBarButton({
       [this] { return chineseMode_; },
       [this] { return fullShape_; },
+      [this] { return privateMode_; },
       [this] { ToggleChineseFromUi(); },
       [this] { SetFullShape(!fullShape_); },
   });

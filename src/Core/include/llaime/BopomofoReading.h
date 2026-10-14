@@ -47,7 +47,7 @@ class BopomofoReading {
   bool Empty() const { return current_.empty(); }
   void Clear() { current_ = Syllable(); }
   void Restore(Syllable s) { current_ = s; }
-  bool Backspace();  // removes the tone (left by Restore) or the last-typed component
+  bool Backspace();  // removes the last-typed component (and any tone left by Restore)
   std::wstring Text() const { return current_.ToString(); }
 
  private:

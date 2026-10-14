@@ -111,6 +111,13 @@ class TextService final : public ITfTextInputProcessorEx,
   bool InitLangBar();
   void UninitLangBar();
 
+  // Privacy mode (Privacy.cpp): password fields and private browsing. While on, nothing may
+  // be learned or logged.
+  void UpdatePrivacy(ITfContext* context, TfEditCookie ec);
+  void RequestPrivacyUpdate(ITfDocumentMgr* docMgr);
+  void SetPrivateMode(bool isPrivate);
+  bool IsPrivateMode() const { return privateMode_; }
+
   // Key handling (KeyEventSink.cpp)
   KeyAction ClassifyKey(WPARAM vk) const;
   HRESULT ExecuteKeyAction(ITfContext* context, const KeyAction& action);
@@ -147,6 +154,7 @@ class TextService final : public ITfTextInputProcessorEx,
 
   bool chineseMode_ = true;
   bool fullShape_ = false;
+  bool privateMode_ = false;
   bool updatingCompartment_ = false;
   bool shiftAlone_ = false;
   bool readingInvalid_ = false;  // last tone key completed a syllable that does not exist

@@ -22,6 +22,7 @@ add_library(LLaIME.Tip SHARED
   Composition.cpp
   DisplayAttribute.cpp
   LangBarButton.cpp
+  Privacy.cpp
   Tip.def
   Tip.rc
 )

@@ -108,6 +108,8 @@ STDMETHODIMP TextService::ActivateEx(ITfThreadMgr* threadMgr, TfClientId clientI
     Deactivate();
     return E_FAIL;
   }
+  ComPtr<ITfDocumentMgr> focus;
+  if (SUCCEEDED(threadMgr_->GetFocus(&focus))) RequestPrivacyUpdate(focus.Get());
   return S_OK;
 }
 
@@ -149,12 +151,17 @@ void TextService::UninitThreadMgrEventSink() {
 STDMETHODIMP TextService::OnInitDocumentMgr(ITfDocumentMgr*) { return S_OK; }
 STDMETHODIMP TextService::OnUninitDocumentMgr(ITfDocumentMgr*) { return S_OK; }
 
-STDMETHODIMP TextService::OnSetFocus(ITfDocumentMgr*, ITfDocumentMgr*) {
+STDMETHODIMP TextService::OnSetFocus(ITfDocumentMgr* focus, ITfDocumentMgr*) {
   CloseCandidates();
+  RequestPrivacyUpdate(focus);
   return S_OK;
 }
 
-STDMETHODIMP TextService::OnPushContext(ITfContext*) { return S_OK; }
+STDMETHODIMP TextService::OnPushContext(ITfContext* context) {
+  ComPtr<ITfDocumentMgr> docMgr;
+  if (context && SUCCEEDED(context->GetDocumentMgr(&docMgr))) RequestPrivacyUpdate(docMgr.Get());
+  return S_OK;
+}
 STDMETHODIMP TextService::OnPopContext(ITfContext*) { return S_OK; }
 
 STDMETHODIMP TextService::EnumDisplayAttributeInfo(IEnumTfDisplayAttributeInfo** enumInfo) {

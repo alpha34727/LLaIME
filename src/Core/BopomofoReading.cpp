@@ -70,9 +70,10 @@ Syllable BopomofoReading::TakeSyllable() {
 }
 
 bool BopomofoReading::Backspace() {
-  if (current_.hasTone()) {
-    current_.setTone(0);
-  } else if (current_.vowel()) {
+  // A tone left by Restore goes together with the symbol before it (ㄆㄨㄟˇ -> ㄆㄨ), as in
+  // Microsoft Bopomofo.
+  current_.setTone(0);
+  if (current_.vowel()) {
     current_.setVowel(0);
   } else if (current_.medial()) {
     current_.setMedial(0);

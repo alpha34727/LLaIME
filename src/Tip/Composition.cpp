@@ -71,6 +71,9 @@ bool TextService::StartComposition(ITfContext* context, TfEditCookie ec) {
   }
   composition_ = composition;
   compositionContext_ = context;
+  // Re-check privacy at the start of every composition: focus events alone miss changes
+  // inside one document (e.g. moving between a search box and a password box in a page).
+  UpdatePrivacy(context, ec);
   return true;
 }
 

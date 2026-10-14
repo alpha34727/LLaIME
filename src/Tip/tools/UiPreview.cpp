@@ -121,7 +121,7 @@ void PreviewMenu(const std::wstring& dir, const wchar_t* suffix) {
 // Draws the taskbar 中/英 icons (current Windows theme) on a taskbar-colored strip.
 void PreviewTaskbarIcons(const std::wstring& dir) {
   const int size = LangBarIconSize();
-  const int w = size * 5, h = size * 2;
+  const int w = size * 9, h = size * 2;
   HDC screen = GetDC(nullptr);
   HDC dc = CreateCompatibleDC(screen);
   BITMAPINFO bi{};
@@ -135,8 +135,8 @@ void PreviewTaskbarIcons(const std::wstring& dir) {
   FillRect(dc, &rc, bg);
   DeleteObject(bg);
   int x = size;
-  for (const wchar_t* text : {L"中", L"英"}) {
-    HICON icon = CreateTaskbarTextIcon(text, size);
+  for (int i = 0; i < 4; ++i) {
+    HICON icon = CreateTaskbarTextIcon(i % 2 ? L"英" : L"中", size, i >= 2);
     DrawIconEx(dc, x, size / 2, icon, size, size, 0, nullptr, DI_NORMAL);
     DestroyIcon(icon);
     x += size * 2;

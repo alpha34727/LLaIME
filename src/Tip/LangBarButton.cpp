@@ -72,9 +72,10 @@ STDMETHODIMP LangBarButton::GetTooltipString(BSTR* tooltip) {
   if (!tooltip) return E_INVALIDARG;
   const bool chinese = callbacks_.isChinese();
   const bool full = callbacks_.isFullShape();
-  wchar_t text[64];
-  StringCchPrintfW(text, ARRAYSIZE(text), L"%s模式（%s）", chinese ? L"中文" : L"英數",
-                   full ? L"全形" : L"半形");
+  wchar_t text[96];
+  StringCchPrintfW(text, ARRAYSIZE(text), L"%s模式（%s）%s", chinese ? L"中文" : L"英數",
+                   full ? L"全形" : L"半形",
+                   callbacks_.isPrivate() ? L"（隱私模式：不會學習輸入內容）" : L"");
   *tooltip = SysAllocString(text);
   return *tooltip ? S_OK : E_OUTOFMEMORY;
 }
@@ -115,7 +116,8 @@ STDMETHODIMP LangBarButton::OnMenuSelect(UINT id) {
 
 STDMETHODIMP LangBarButton::GetIcon(HICON* icon) {
   if (!icon) return E_INVALIDARG;
-  *icon = CreateTaskbarTextIcon(callbacks_.isChinese() ? L"中" : L"英", LangBarIconSize());
+  *icon = CreateTaskbarTextIcon(callbacks_.isChinese() ? L"中" : L"英", LangBarIconSize(),
+                                callbacks_.isPrivate());
   return *icon ? S_OK : E_FAIL;
 }
 

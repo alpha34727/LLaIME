@@ -1,10 +1,12 @@
 #include "ui/PopupMenu.h"
 
+#include <dwmapi.h>
 #include <shellscalingapi.h>
 #include <windowsx.h>
 #include <wrl/client.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 
 #include "Globals.h"
@@ -30,6 +32,8 @@ constexpr float kFontSize = 14;
 constexpr float kRadius = 4;
 constexpr float kGapAboveTaskbar = 8;
 constexpr UINT_PTR kPollTimer = 1;
+// Opening animation: the menu rises out of the taskbar, decelerating (Windows 11 flyouts).
+constexpr double kOpenAnimationMs = 220;
 
 bool g_classRegistered = false;
 
@@ -49,6 +53,8 @@ class PopupMenu {
   int HitTest(POINT pt) const;
   void Paint();
   void Poll();
+  // Advances the opening animation; returns false once it has finished.
+  bool AnimateStep();
   void Finish(UINT result) {
     result_ = result;
     done_ = true;
@@ -64,6 +70,8 @@ class PopupMenu {
   UINT result_ = 0;
   bool buttonWasDown_[3] = {};
   bool escapeWasDown_ = false;
+  int x_ = 0, bottom_ = 0, w_ = 0, h_ = 0;  // final window rect (physical pixels)
+  std::chrono::steady_clock::time_point animationStart_;
   ComPtr<ID2D1HwndRenderTarget> target_;
   ComPtr<IDWriteTextFormat> textFormat_;
   ComPtr<IDWriteTextFormat> glyphFormat_;
@@ -138,8 +146,13 @@ UINT PopupMenu::Run() {
                      static_cast<int>(work.right) - w - gap);
   int y = std::max(static_cast<int>(work.top), bottom - h);
 
+  x_ = x;
+  bottom_ = y + h;
+  w_ = w;
+  h_ = h;
+  // Start as a one-pixel strip at the bottom edge; AnimateStep grows it upward.
   hwnd_ = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE, kClassName, L"",
-                          WS_POPUP, x, y, w, h, nullptr, nullptr, g_hInst, this);
+                          WS_POPUP, x, bottom_ - 1, w, 1, nullptr, nullptr, g_hInst, this);
   if (oldContext) SetThreadDpiAwarenessContext(oldContext);
   if (!hwnd_) return 0;
   ApplyPopupChrome(hwnd_, theme_.dark);
@@ -150,11 +163,30 @@ UINT PopupMenu::Run() {
   escapeWasDown_ = GetAsyncKeyState(VK_ESCAPE) & 0x8000;
   ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
   SetTimer(hwnd_, kPollTimer, 20, nullptr);
+  animationStart_ = std::chrono::steady_clock::now();
+  bool animating = true;
 
   // Modal loop like TrackPopupMenu. Mouse clicks elsewhere go to other threads' windows, so
   // dismissal is detected by polling button state rather than by capture.
   MSG msg;
-  while (!done_) {
+  bool quit = false;
+  while (!done_ && !quit) {
+    if (animating) {
+      while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+        if (msg.message == WM_QUIT) {
+          PostQuitMessage(static_cast<int>(msg.wParam));
+          quit = true;
+          break;
+        }
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+      }
+      if (!quit && !done_) {
+        animating = AnimateStep();
+        DwmFlush();  // pace frames to the display refresh
+      }
+      continue;
+    }
     BOOL r = GetMessageW(&msg, nullptr, 0, 0);
     if (r == 0) {
       PostQuitMessage(static_cast<int>(msg.wParam));
@@ -168,6 +200,19 @@ UINT PopupMenu::Run() {
   DestroyWindow(hwnd_);
   hwnd_ = nullptr;
   return result_;
+}
+
+bool PopupMenu::AnimateStep() {
+  using namespace std::chrono;
+  const double t = std::min(
+      1.0, duration<double, std::milli>(steady_clock::now() - animationStart_).count() /
+               kOpenAnimationMs);
+  const double eased = 1.0 - std::pow(1.0 - t, 3.0);  // ease-out cubic
+  const int visible = std::max(1, static_cast<int>(std::lround(h_ * eased)));
+  SetWindowPos(hwnd_, nullptr, x_, bottom_ - visible, w_, visible,
+               SWP_NOACTIVATE | SWP_NOZORDER);
+  RedrawWindow(hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
+  return t < 1.0;
 }
 
 void PopupMenu::Poll() {
@@ -258,6 +303,9 @@ LRESULT PopupMenu::Handle(UINT msg, WPARAM wp, LPARAM lp) {
     }
     case WM_TIMER:
       if (wp == kPollTimer) Poll();
+      return 0;
+    case WM_SIZE:
+      if (target_) target_->Resize(D2D1::SizeU(LOWORD(lp), HIWORD(lp)));
       return 0;
     case WM_MOUSEMOVE: {
       int hit = HitTest({GET_X_LPARAM(lp), GET_Y_LPARAM(lp)});
