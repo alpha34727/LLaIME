@@ -2,6 +2,7 @@
 #include "Globals.h"
 #include "Register.h"
 #include "ui/CandidateWindow.h"
+#include "ui/PopupMenu.h"
 
 using namespace llaime;
 
@@ -27,6 +28,7 @@ STDAPI DllGetClassObject(REFCLSID clsid, REFIID riid, void** ppv) {
 STDAPI DllCanUnloadNow() {
   if (g_dllRefCount != 0) return S_FALSE;
   CandidateWindow::UnregisterClass();
+  UnregisterPopupMenuClass();
   return S_OK;
 }
 

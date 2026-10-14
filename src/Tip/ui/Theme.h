@@ -17,7 +17,15 @@ struct Theme {
   D2D1_COLOR_F pageDot;
   D2D1_COLOR_F pageDotActive;
 
+  // Follows the app theme (AppsUseLightTheme): candidate window next to the app's text.
   static Theme Current();
+  // Follows the Windows theme (SystemUsesLightTheme): UI that belongs to the taskbar.
+  static Theme ForSystem();
+  // Preview tool only: force dark (1) or light (0); -1 follows the system.
+  static void OverrideForPreview(int dark);
+
+ private:
+  static Theme Make(bool dark);
 };
 
 }  // namespace llaime

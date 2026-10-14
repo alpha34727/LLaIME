@@ -14,11 +14,11 @@ struct AttributeDef {
   TF_DISPLAYATTRIBUTE attr;
 };
 
-// Matches Microsoft Bopomofo: text being composed gets a thin solid underline in the text color.
+// Matches Microsoft Bopomofo: text being composed gets a thin dotted underline in the text color.
 const AttributeDef kAttributes[] = {
     {&GUID_DisplayAttributeInput,
      L"LLaIME Input",
-     {{TF_CT_NONE, {0}}, {TF_CT_NONE, {0}}, TF_LS_SOLID, FALSE, {TF_CT_NONE, {0}}, TF_ATTR_INPUT}},
+     {{TF_CT_NONE, {0}}, {TF_CT_NONE, {0}}, TF_LS_DOT, FALSE, {TF_CT_NONE, {0}}, TF_ATTR_INPUT}},
     {&GUID_DisplayAttributeConverted,
      L"LLaIME Converted",
      {{TF_CT_NONE, {0}}, {TF_CT_NONE, {0}}, TF_LS_SOLID, TRUE, {TF_CT_NONE, {0}},

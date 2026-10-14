@@ -8,6 +8,7 @@
 #include <cmath>
 
 #include "Globals.h"
+#include "ui/Graphics.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -32,25 +33,6 @@ constexpr float kDotRadius = 2;
 constexpr float kDotSpacing = 10;
 constexpr float kArrowSize = 8;
 
-ID2D1Factory* D2DFactory() {
-  static ComPtr<ID2D1Factory> factory = [] {
-    ComPtr<ID2D1Factory> f;
-    D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, f.GetAddressOf());
-    return f;
-  }();
-  return factory.Get();
-}
-
-IDWriteFactory* DWriteFactory() {
-  static ComPtr<IDWriteFactory> factory = [] {
-    ComPtr<IDWriteFactory> f;
-    DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
-                        reinterpret_cast<IUnknown**>(f.GetAddressOf()));
-    return f;
-  }();
-  return factory.Get();
-}
-
 bool g_classRegistered = false;
 
 bool RegisterWindowClass(WNDPROC proc) {
@@ -64,17 +46,6 @@ bool RegisterWindowClass(WNDPROC proc) {
     g_classRegistered = RegisterClassExW(&wc) != 0;
   }
   return g_classRegistered;
-}
-
-float TextWidth(const std::wstring& text, IDWriteTextFormat* format) {
-  ComPtr<IDWriteTextLayout> layout;
-  if (FAILED(DWriteFactory()->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()),
-                                               format, 4096, 100, &layout))) {
-    return 0;
-  }
-  DWRITE_TEXT_METRICS m{};
-  layout->GetMetrics(&m);
-  return m.widthIncludingTrailingWhitespace;
 }
 
 }  // namespace
@@ -100,9 +71,6 @@ bool CandidateWindow::EnsureWindow() {
   if (old) SetThreadDpiAwarenessContext(old);
   if (!hwnd_) return false;
   SetWindowLongPtrW(hwnd_, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
-
-  DWM_WINDOW_CORNER_PREFERENCE corner = DWMWCP_ROUND;
-  DwmSetWindowAttribute(hwnd_, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner));
   return true;
 }
 
@@ -156,6 +124,7 @@ void CandidateWindow::Show(std::vector<std::wstring> items, const RECT& anchor) 
   selection_ = 0;
   hoverRow_ = -1;
   theme_ = Theme::Current();
+  ApplyPopupChrome(hwnd_, theme_.dark);
   UpdateLayout(anchor);
   ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
   InvalidateRect(hwnd_, nullptr, FALSE);
@@ -175,7 +144,7 @@ void CandidateWindow::UpdateLayout(const RECT& anchor) {
   EnsureDeviceResources();
 
   float maxText = 0;
-  for (const auto& item : items_) maxText = std::max(maxText, TextWidth(item, textFormat_.Get()));
+  for (const auto& item : items_) maxText = std::max(maxText, MeasureTextWidth(item, textFormat_.Get()));
   widthDip_ = std::max(kMinWidth, kTextX + maxText + 16 + kRightColumn);
   const size_t rows = std::min(kPageSize, items_.size());
   const float heightDip = kInset + rows * kRowHeight + kInset + kFooterHeight;
@@ -274,9 +243,9 @@ void CandidateWindow::Paint() {
                       D2D1::RectF(kNumberX, top, kTextX, top + kRowHeight), brush.Get());
     brush->SetColor(theme_.text);
     const std::wstring& text = items_[i];
-    target_->DrawText(text.c_str(), static_cast<UINT32>(text.size()), textFormat_.Get(),
-                      D2D1::RectF(kTextX, top, row.right - kRightColumn, top + kRowHeight),
-                      brush.Get());
+    DrawColorText(target_.Get(), text, textFormat_.Get(),
+                  D2D1::RectF(kTextX, top, row.right - kRightColumn, top + kRowHeight),
+                  brush.Get());
   }
 
   // Page dots, vertically centered in the list area.

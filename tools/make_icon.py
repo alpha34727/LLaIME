@@ -1,8 +1,8 @@
-"""Render the TIP profile icon (a single glyph) into a multi-size .ico.
+"""Render the TIP profile icon into a multi-size .ico.
 
-By default the icon is monochrome (1 bpp): Windows recolors monochrome IME icons to the
-current theme's text color, so the glyph stays visible on light and dark taskbars.
-Use --color for a 32-bpp anti-aliased icon instead.
+The shell does not recolor profile icons for the taskbar theme, so the default style is a
+white rounded tile with a dark outline and glyph (like other third-party IMEs), which reads
+on both light and dark taskbars. --style mono writes a 1-bpp glyph-only icon instead.
 """
 
 import argparse
@@ -25,6 +25,25 @@ def render(glyph: str, size: int, font_path: str) -> Image.Image:
     x = (canvas - (right - left)) / 2 - left
     y = (canvas - (bottom - top)) / 2 - top
     draw.text((x, y), glyph, font=font, fill=255)
+    return img.resize((size, size), Image.LANCZOS)
+
+
+def framed(glyph: str, size: int, font_path: str) -> Image.Image:
+    """White rounded tile, dark border, dark glyph; drawn at 8x then downsampled."""
+    scale = 8
+    canvas = size * scale
+    img = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    border = max(1, round(size / 16)) * scale
+    inset = scale // 2
+    radius = canvas * 0.18
+    draw.rounded_rectangle((inset, inset, canvas - 1 - inset, canvas - 1 - inset), radius,
+                           fill=(255, 255, 255, 255), outline=(64, 64, 64, 255), width=border)
+    font = ImageFont.truetype(font_path, int(canvas * 0.72))
+    left, top, right, bottom = draw.textbbox((0, 0), glyph, font=font)
+    x = (canvas - (right - left)) / 2 - left
+    y = (canvas - (bottom - top)) / 2 - top
+    draw.text((x, y), glyph, font=font, fill=(32, 32, 32, 255))
     return img.resize((size, size), Image.LANCZOS)
 
 
@@ -69,22 +88,17 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("output", type=Path)
     parser.add_argument("--glyph", default="注")
-    parser.add_argument("--font", default=r"C:\Windows\Fonts\msjh.ttc")
-    parser.add_argument("--color", action="store_true", help="32-bpp anti-aliased icon")
+    parser.add_argument("--font", default=r"C:\Windows\Fonts\msjhbd.ttc")
+    parser.add_argument("--style", choices=["framed", "mono"], default="framed")
     args = parser.parse_args()
 
-    images = [render(args.glyph, s, args.font) for s in SIZES]
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    if args.color:
-        rgba = []
-        for img in images:
-            layer = Image.new("RGBA", img.size, (32, 32, 32, 0))
-            layer.putalpha(img)
-            rgba.append(layer)
-        rgba[-1].save(args.output, format="ICO", sizes=[(s, s) for s in SIZES],
-                      append_images=rgba[:-1])
+    if args.style == "mono":
+        write_monochrome_ico(args.output, [render(args.glyph, s, args.font) for s in SIZES])
     else:
-        write_monochrome_ico(args.output, images)
+        images = [framed(args.glyph, s, args.font) for s in SIZES + [256]]
+        images[-1].save(args.output, format="ICO", sizes=[(s, s) for s in SIZES + [256]],
+                        append_images=images[:-1])
 
 
 if __name__ == "__main__":

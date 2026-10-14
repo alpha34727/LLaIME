@@ -4,6 +4,7 @@
 #include <strsafe.h>
 
 #include "Globals.h"
+#include "ui/PopupMenu.h"
 #include "ui/TextIcon.h"
 
 namespace llaime {
@@ -79,25 +80,22 @@ STDMETHODIMP LangBarButton::GetTooltipString(BSTR* tooltip) {
   return *tooltip ? S_OK : E_OUTOFMEMORY;
 }
 
-STDMETHODIMP LangBarButton::OnClick(TfLBIClick click, POINT pt, const RECT*) {
+STDMETHODIMP LangBarButton::OnClick(TfLBIClick click, POINT, const RECT*) {
   if (click == TF_LBI_CLK_LEFT) {
     callbacks_.toggleChinese();
     return S_OK;
   }
-  // Right click: a small menu like Microsoft Bopomofo's.
-  HMENU menu = CreatePopupMenu();
+  // Right click: a Windows 11 style menu like Microsoft Bopomofo's.
   const bool chinese = callbacks_.isChinese();
   const bool full = callbacks_.isFullShape();
-  AppendMenuW(menu, MF_STRING | (chinese ? MF_CHECKED : 0), kMenuChinese, L"中文");
-  AppendMenuW(menu, MF_STRING | (!chinese ? MF_CHECKED : 0), kMenuEnglish, L"英數");
-  AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-  AppendMenuW(menu, MF_STRING | (!full ? MF_CHECKED : 0), kMenuHalfShape, L"半形");
-  AppendMenuW(menu, MF_STRING | (full ? MF_CHECKED : 0), kMenuFullShape, L"全形");
-  HWND owner = GetForegroundWindow();
-  UINT id = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_BOTTOMALIGN, pt.x, pt.y,
-                             owner, nullptr);
-  DestroyMenu(menu);
-  OnMenuSelect(id);
+  std::vector<PopupMenuItem> items = {
+      {kMenuChinese, L"中文", chinese},
+      {kMenuEnglish, L"英數", !chinese},
+      {0, L"", false, true},
+      {kMenuHalfShape, L"半形", !full},
+      {kMenuFullShape, L"全形", full},
+  };
+  OnMenuSelect(ShowPopupMenu(items));
   return S_OK;
 }
 

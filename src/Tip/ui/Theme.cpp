@@ -9,11 +9,11 @@ D2D1_COLOR_F Rgb(UINT32 rgb, float alpha = 1.0f) {
   return D2D1::ColorF(rgb, alpha);
 }
 
-bool AppsUseLightTheme() {
+bool ReadLightThemeFlag(const wchar_t* name) {
   DWORD value = 1, size = sizeof(value);
   RegGetValueW(HKEY_CURRENT_USER,
-               L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
-               L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &value, &size);
+               L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", name,
+               RRF_RT_REG_DWORD, nullptr, &value, &size);
   return value != 0;
 }
 
@@ -35,9 +35,21 @@ bool ReadAccent(int index, D2D1_COLOR_F* out) {
 
 }  // namespace
 
+static int g_previewDark = -1;
+
 Theme Theme::Current() {
+  return Make(g_previewDark >= 0 ? g_previewDark : !ReadLightThemeFlag(L"AppsUseLightTheme"));
+}
+
+Theme Theme::ForSystem() {
+  return Make(g_previewDark >= 0 ? g_previewDark : !ReadLightThemeFlag(L"SystemUsesLightTheme"));
+}
+
+void Theme::OverrideForPreview(int dark) { g_previewDark = dark; }
+
+Theme Theme::Make(bool dark) {
   Theme t;
-  t.dark = !AppsUseLightTheme();
+  t.dark = dark;
   if (t.dark) {
     t.background = Rgb(0x2C2C2C);
     t.border = Rgb(0x000000, 0.25f);
