@@ -12,12 +12,14 @@ option(LLAIME_BUILD_ENGINE "Build the engine (x64 only)" ON)
 option(LLAIME_BUILD_TESTS "Build tests" ON)
 
 add_subdirectory(src/Common)
+add_subdirectory(src/Core)
 add_subdirectory(src/Tip)
 
 if(LLAIME_BUILD_ENGINE AND CMAKE_SIZEOF_VOID_P EQUAL 8 AND EXISTS ${CMAKE_SOURCE_DIR}/src/Engine/CMakeLists.txt)
   add_subdirectory(src/Engine)
-  if(LLAIME_BUILD_TESTS)
-    enable_testing()
-    add_subdirectory(tests/EngineTests)
-  endif()
+endif()
+
+if(LLAIME_BUILD_TESTS AND CMAKE_SIZEOF_VOID_P EQUAL 8)
+  enable_testing()
+  add_subdirectory(tests/CoreTests)
 endif()

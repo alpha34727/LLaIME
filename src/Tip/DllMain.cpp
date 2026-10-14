@@ -1,6 +1,7 @@
 #include "ClassFactory.h"
 #include "Globals.h"
 #include "Register.h"
+#include "ui/CandidateWindow.h"
 
 using namespace llaime;
 
@@ -23,7 +24,11 @@ STDAPI DllGetClassObject(REFCLSID clsid, REFIID riid, void** ppv) {
   return g_classFactory.QueryInterface(riid, ppv);
 }
 
-STDAPI DllCanUnloadNow() { return g_dllRefCount == 0 ? S_OK : S_FALSE; }
+STDAPI DllCanUnloadNow() {
+  if (g_dllRefCount != 0) return S_FALSE;
+  CandidateWindow::UnregisterClass();
+  return S_OK;
+}
 
 STDAPI DllUnregisterServer() {
   UnregisterCategories();

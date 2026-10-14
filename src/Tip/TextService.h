@@ -2,11 +2,53 @@
 #include <msctf.h>
 #include <wrl/client.h>
 
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "llaime/BopomofoReading.h"
+#include "llaime/Composer.h"
+
 namespace llaime {
+
+class CandidateWindow;
+
+// What a key press does, decided in OnTestKeyDown and carried out in OnKeyDown.
+struct KeyAction {
+  enum class Type {
+    PassThrough,
+    Swallow,
+    Reading,      // feed `ch` to the Bopomofo reading
+    Literal,      // insert `text` (punctuation, Shift+letter) into the buffer
+    Backspace,
+    Delete,
+    MoveLeft,
+    MoveRight,
+    MoveHome,
+    MoveEnd,
+    Commit,
+    Cancel,
+    OpenCandidates,
+    CandidateDigit,  // `number` = 1..9
+    CandidateUp,
+    CandidateDown,
+    CandidatePageUp,
+    CandidatePageDown,
+    CandidateAccept,
+    CandidateClose,
+  };
+  Type type = Type::PassThrough;
+  wchar_t ch = 0;
+  std::wstring text;
+  int number = 0;
+};
 
 class TextService final : public ITfTextInputProcessorEx,
                           public ITfThreadMgrEventSink,
-                          public ITfKeyEventSink {
+                          public ITfKeyEventSink,
+                          public ITfCompositionSink,
+                          public ITfDisplayAttributeProvider,
+                          public ITfCompartmentEventSink {
  public:
   TextService();
 
@@ -36,6 +78,16 @@ class TextService final : public ITfTextInputProcessorEx,
   STDMETHODIMP OnKeyUp(ITfContext* context, WPARAM wParam, LPARAM lParam, BOOL* eaten) override;
   STDMETHODIMP OnPreservedKey(ITfContext* context, REFGUID guid, BOOL* eaten) override;
 
+  // ITfCompositionSink
+  STDMETHODIMP OnCompositionTerminated(TfEditCookie ec, ITfComposition* composition) override;
+
+  // ITfDisplayAttributeProvider
+  STDMETHODIMP EnumDisplayAttributeInfo(IEnumTfDisplayAttributeInfo** enumInfo) override;
+  STDMETHODIMP GetDisplayAttributeInfo(REFGUID guid, ITfDisplayAttributeInfo** info) override;
+
+  // ITfCompartmentEventSink (InputMode.cpp)
+  STDMETHODIMP OnChange(REFGUID guid) override;
+
  private:
   ~TextService();
 
@@ -44,10 +96,55 @@ class TextService final : public ITfTextInputProcessorEx,
   bool InitKeyEventSink();
   void UninitKeyEventSink();
 
+  // Input mode (InputMode.cpp)
+  bool InitInputMode();
+  void UninitInputMode();
+  void SetChineseMode(bool chinese);
+  bool IsChineseMode() const { return chineseMode_; }
+
+  // Key handling (KeyEventSink.cpp)
+  KeyAction ClassifyKey(WPARAM vk) const;
+  HRESULT ExecuteKeyAction(ITfContext* context, const KeyAction& action);
+  void HandleAction(ITfContext* context, TfEditCookie ec, const KeyAction& action);
+  bool IsComposing() const { return !composer_.empty() || !reading_.Empty(); }
+
+  // Composition (Composition.cpp)
+  void UpdateComposition(ITfContext* context, TfEditCookie ec);
+  void CommitAll(ITfContext* context, TfEditCookie ec);
+  void CommitOverflow(ITfContext* context, TfEditCookie ec);
+  void CancelComposition(ITfContext* context, TfEditCookie ec);
+  bool StartComposition(ITfContext* context, TfEditCookie ec);
+  void EndComposition(TfEditCookie ec);
+  void ApplyDisplayAttribute(ITfContext* context, TfEditCookie ec, ITfRange* range);
+  bool GetTextRect(ITfContext* context, TfEditCookie ec, size_t begin, size_t end, RECT* rect);
+  void ResetState();
+
+  // Candidates (Composition.cpp)
+  void OpenCandidates(ITfContext* context, TfEditCookie ec);
+  void SelectCandidate(ITfContext* context, TfEditCookie ec, size_t index);
+  void CloseCandidates();
+  bool CandidatesOpen() const;
+
   LONG refCount_ = 1;
   Microsoft::WRL::ComPtr<ITfThreadMgr> threadMgr_;
   TfClientId clientId_ = TF_CLIENTID_NULL;
   DWORD threadMgrEventSinkCookie_ = TF_INVALID_COOKIE;
+  DWORD conversionSinkCookie_ = TF_INVALID_COOKIE;
+  DWORD openCloseSinkCookie_ = TF_INVALID_COOKIE;
+  TfGuidAtom inputAttributeAtom_ = TF_INVALID_GUIDATOM;
+
+  bool chineseMode_ = true;
+  bool updatingCompartment_ = false;
+  bool shiftAlone_ = false;
+
+  const Lexicon* lexicon_;
+  BopomofoReading reading_;
+  Composer composer_;
+  std::vector<Candidate> candidates_;
+  std::unique_ptr<CandidateWindow> candidateWindow_;
+
+  Microsoft::WRL::ComPtr<ITfComposition> composition_;
+  Microsoft::WRL::ComPtr<ITfContext> compositionContext_;
 };
 
 }  // namespace llaime

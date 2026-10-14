@@ -64,4 +64,18 @@ foreach ($t in $targets) {
   Write-Host "Registered $dll"
 }
 
-if ($Uninstall) { Remove-Item $installRoot -Recurse -Force -ErrorAction SilentlyContinue }
+if ($Uninstall) {
+  Remove-Item $installRoot -Recurse -Force -ErrorAction SilentlyContinue
+} else {
+  $lexicon = Join-Path $repo 'data\build\lexicon.bin'
+  if (-not (Test-Path $lexicon)) { throw "Missing $lexicon (run: cd tools; uv run python prepare_lexicon.py)" }
+  $dataDir = Join-Path $installRoot 'data'
+  New-Item -ItemType Directory -Force $dataDir | Out-Null
+  $dest = Join-Path $dataDir 'lexicon.bin'
+  # The lexicon is memory-mapped by running apps; rename it aside like the DLLs.
+  Get-ChildItem $dataDir -Filter 'lexicon.bin.old*' -ErrorAction SilentlyContinue |
+    ForEach-Object { try { Remove-Item $_.FullName -Force -ErrorAction Stop } catch {} }
+  if (Test-Path $dest) { Rename-Item $dest ("lexicon.bin.old" + [DateTime]::Now.ToString('yyyyMMddHHmmss')) }
+  Copy-Item $lexicon $dest
+  Write-Host "Installed $dest"
+}

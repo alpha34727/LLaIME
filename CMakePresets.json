@@ -12,7 +12,7 @@
       "generator": "Visual Studio 18 2026",
       "architecture": "Win32",
       "binaryDir": "${sourceDir}/build/x86",
-      "cacheVariables": { "LLAIME_BUILD_ENGINE": "OFF" }
+      "cacheVariables": { "LLAIME_BUILD_ENGINE": "OFF", "LLAIME_BUILD_TESTS": "OFF" }
     }
   ],
   "buildPresets": [
