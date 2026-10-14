@@ -28,20 +28,26 @@ KeyAction MakeInsert(std::wstring text) {
   return a;
 }
 
-// First entry of the named lexicon tables `prefixes` + `usChar`.
-std::wstring LookupPunctuation(const Lexicon* lexicon, wchar_t usChar,
-                               std::initializer_list<const wchar_t*> prefixes) {
-  if (!lexicon) return {};
-  std::vector<LexEntry> entries;
-  for (std::wstring prefix : prefixes) {
-    if (lexicon->LookupNamed(prefix + usChar, entries)) return std::wstring(entries.front().text);
+// Ctrl / Ctrl+Shift punctuation, from Microsoft Bopomofo (Windows 11). Keys not listed type
+// nothing in Microsoft Bopomofo and are left to the app as shortcuts.
+std::wstring CtrlPunctuation(wchar_t usChar, bool shift) {
+  struct Entry {
+    wchar_t key;  // unshifted US character
+    const wchar_t* ctrl;
+    const wchar_t* ctrlShift;
+  };
+  static constexpr Entry kTable[] = {
+      {L'1', nullptr, L"！"}, {L'[', L"【", L"｛"},  {L']', L"】", L"｝"},
+      {L';', L"；", L"："},   {L'\'', L"、", nullptr}, {L',', L"，", nullptr},
+      {L'.', L"。", nullptr}, {L'/', nullptr, L"？"},
+  };
+  for (const Entry& e : kTable) {
+    if (e.key == usChar) {
+      const wchar_t* text = shift ? e.ctrlShift : e.ctrl;
+      return text ? text : L"";
+    }
   }
   return {};
-}
-
-// Chinese punctuation for an unshifted non-Bopomofo key (e.g. ' -> 、, [ -> 「).
-std::wstring Punctuation(const Lexicon* lexicon, wchar_t usChar) {
-  return LookupPunctuation(lexicon, usChar, {L"_punctuation_Standard_", L"_punctuation_"});
 }
 
 // ASCII to its full-width form; space becomes the ideographic space.
@@ -84,11 +90,16 @@ KeyAction TextService::ClassifyKey(WPARAM vk) const {
   const bool composing = IsComposing();
   if (mods.alt) return Make(Type::PassThrough);
   if (mods.ctrl) {
-    if (wchar_t punct = CtrlPunctuation(UsCharFromVirtualKey(vk, false), mods.shift)) {
-      return MakeLiteral(std::wstring(1, punct));
-    }
-    return Make(Type::PassThrough);
+    std::wstring punct = CtrlPunctuation(UsCharFromVirtualKey(vk, false), mods.shift);
+    return punct.empty() ? Make(Type::PassThrough) : MakeLiteral(punct);
   }
+
+  // A plain character goes into the composition while composing, is inserted as full width in
+  // full-width mode, and otherwise reaches the app exactly as typed.
+  auto typeChar = [&](wchar_t c) {
+    if (composing) return MakeLiteral(fullShape_ ? ToFullWidth(c) : std::wstring(1, c));
+    return fullShape_ ? MakeInsert(ToFullWidth(c)) : Make(Type::PassThrough);
+  };
 
   if (CandidatesOpen()) {
     if (vk >= '1' && vk <= '9' && !mods.shift) {
@@ -110,18 +121,12 @@ KeyAction TextService::ClassifyKey(WPARAM vk) const {
   // Caps Lock types English letters: upper case, or lower case with Shift.
   const bool capsLock = (GetKeyState(VK_CAPITAL) & 1) != 0;
   if (capsLock && vk >= 'A' && vk <= 'Z') {
-    wchar_t letter = static_cast<wchar_t>(mods.shift ? vk - 'A' + 'a' : vk);
-    return MakeLiteral(fullShape_ ? ToFullWidth(letter) : std::wstring(1, letter));
+    return typeChar(static_cast<wchar_t>(mods.shift ? vk - 'A' + 'a' : vk));
   }
 
   const wchar_t ch = UsCharFromVirtualKey(vk, mods.shift);
   if (ch && !mods.shift) {
-    if (ch == L' ' && reading_.Empty()) {
-      // Space types a space, inside the composition if one is in progress.
-      std::wstring space = fullShape_ ? ToFullWidth(L' ') : L" ";
-      if (composing) return MakeLiteral(space);
-      return fullShape_ ? MakeInsert(space) : Make(Type::PassThrough);
-    }
+    if (ch == L' ' && reading_.Empty()) return typeChar(L' ');
     if (reading_.IsToneKey(ch) && reading_.Empty()) {
       // A tone with nothing to apply to: type the digit unless we are composing.
       return composing ? Make(Type::Swallow) : Make(Type::PassThrough);
@@ -132,12 +137,9 @@ KeyAction TextService::ClassifyKey(WPARAM vk) const {
       return a;
     }
   }
-  if (ch && ch != L' ') {
-    // Shift+key types what a US keyboard types (Shift+/ ?, Shift+' "), like Microsoft
-    // Bopomofo; Ctrl+key gives Chinese punctuation instead.
-    if (mods.shift) return MakeLiteral(fullShape_ ? ToFullWidth(ch) : std::wstring(1, ch));
-    if (std::wstring punct = Punctuation(lexicon_, ch); !punct.empty()) return MakeLiteral(punct);
-  }
+  // Shift+key, and keys outside the Bopomofo layout (` = [ ] \ '), type what a US keyboard
+  // types, as in Microsoft Bopomofo. Chinese punctuation comes from Ctrl+key.
+  if (ch && ch != L' ') return typeChar(ch);
 
   if (vk >= VK_NUMPAD0 && vk <= VK_NUMPAD9 && (composing || fullShape_)) {
     wchar_t digit = static_cast<wchar_t>(L'0' + (vk - VK_NUMPAD0));
