@@ -110,8 +110,15 @@ if ($Uninstall) {
     if (-not (Test-Path $ini)) {
       New-Item -ItemType Directory -Force $settingsDir | Out-Null
       $modelPath = Join-Path $repo "models\$Model"
-      Set-Content -Path $ini -Encoding Unicode -Value "[model]`r`npath=$modelPath`r`ndevice=auto"
+      Set-Content -Path $ini -Encoding Unicode -Value "[model]`r`nranker=auto`r`npath=$modelPath`r`ndevice=auto"
       Write-Host "Wrote $ini (model: $modelPath)"
+    }
+    # CPU mode (ranker=laya, or auto without a GPU) needs the Laya model directory.
+    $layaDir = Join-Path $repo 'models/laya-zh'
+    if ((Test-Path (Join-Path $layaDir 'laya.int8.onnx')) -and
+        -not (Select-String -Path $ini -Pattern '^\[laya\]' -Quiet)) {
+      Add-Content -Path $ini -Encoding Unicode -Value "[laya]`r`npath=$((Resolve-Path $layaDir).Path)`r`nthreads=0"
+      Write-Host "Added the Laya model ($layaDir) to $ini"
     }
   } else {
     Write-Warning "Engine not built ($engineSrc); typing works with the lexicon only."

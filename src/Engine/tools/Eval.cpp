@@ -4,6 +4,10 @@
 //   LLaIME.Eval --lexicon data/build/lexicon.bin --data tests/eval/commonvoice_dev.tsv
 //               [--model models/x.gguf] [--device auto|CPU|CUDA0] [--k 16] [--limit N]
 //               [--prefix "..."] [--no-context] [--dump out.tsv]
+//               [--laya <model dir>] [--threads N]   rank with Laya (ONNX, CPU) instead
+//   LLaIME.Eval --laya <model dir> --laya-check expected.tsv
+//               checks the C++ tokenizer and input layout against Laya's own
+//               (tools/export_laya_tokenizer.py --cases)
 #include <windows.h>
 
 #include <algorithm>
@@ -16,6 +20,7 @@
 #include <string>
 #include <vector>
 
+#include "LayaScorer.h"
 #include "LlmScorer.h"
 #include "llaime/Composer.h"
 #include "llaime/Lexicon.h"
@@ -96,6 +101,58 @@ size_t MatchingChars(const std::wstring& a, const std::wstring& b) {
   return n;
 }
 
+// Compares BuildInput with the ids and markers Laya's Python build_sequence produced.
+int CheckLaya(LayaScorer& laya, const std::string& path) {
+  std::ifstream in(path, std::ios::binary);
+  std::string line;
+  size_t rows = 0, mismatches = 0;
+  auto parseInts = [](const std::string& s) {
+    std::vector<int64_t> v;
+    std::stringstream ss(s);
+    int64_t x;
+    while (ss >> x) v.push_back(x);
+    return v;
+  };
+  // Minimal JSON string-array reader for the exported state and options.
+  auto parseStrings = [](const std::string& s) {
+    std::vector<std::string> out;
+    std::string cur;
+    bool inString = false;
+    for (size_t i = 0; i < s.size(); ++i) {
+      const char c = s[i];
+      if (!inString) {
+        if (c == '"') inString = true, cur.clear();
+      } else if (c == '\\' && i + 1 < s.size()) {
+        const char e = s[++i];
+        cur.push_back(e == 'n' ? '\n' : e == 't' ? '\t' : e);
+      } else if (c == '"') {
+        inString = false;
+        out.push_back(cur);
+      } else {
+        cur.push_back(c);
+      }
+    }
+    return out;
+  };
+  while (std::getline(in, line)) {
+    std::vector<std::string> cols;
+    std::stringstream ss(line);
+    std::string col;
+    while (std::getline(ss, col, '\t')) cols.push_back(col);
+    if (cols.size() < 5) continue;
+    const auto state = parseStrings(cols[1]);
+    const auto options = parseStrings(cols[2]);
+    std::vector<int64_t> ids, markers;
+    laya.BuildInput(state.empty() ? "" : state[0], options, &ids, &markers);
+    ++rows;
+    if (ids != parseInts(cols[3]) || markers != parseInts(cols[4])) {
+      if (++mismatches <= 5) printf("mismatch: %s\n", cols[0].c_str());
+    }
+  }
+  printf("laya input check: %zu rows, %zu mismatches\n", rows, mismatches);
+  return mismatches == 0 && rows > 0 ? 0 : 1;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -109,6 +166,9 @@ int main(int argc, char** argv) {
       {"--limit", "1000000"},
       {"--prefix", "以下是一段台灣繁體中文的文字：\n"},
       {"--dump", ""},
+      {"--laya", ""},
+      {"--laya-check", ""},
+      {"--threads", "0"},
   };
   bool useContext = true;
   for (int i = 1; i < argc; ++i) {
@@ -123,6 +183,20 @@ int main(int argc, char** argv) {
     }
   }
 
+  LayaScorer laya;
+  const bool useLaya = !args["--laya"].empty();
+  if (useLaya) {
+    LayaScorer::Options options;
+    options.modelDir = FromUtf8(args["--laya"]);
+    options.threads = std::stoi(args["--threads"]);
+    std::string error;
+    if (!laya.Load(options, &error)) {
+      fprintf(stderr, "laya load failed: %s\n", error.c_str());
+      return 1;
+    }
+    if (!args["--laya-check"].empty()) return CheckLaya(laya, args["--laya-check"]);
+  }
+
   Lexicon lexicon;
   if (!lexicon.Open(FromUtf8(args["--lexicon"]))) {
     fprintf(stderr, "cannot open lexicon %s\n", args["--lexicon"].c_str());
@@ -132,8 +206,9 @@ int main(int argc, char** argv) {
   const size_t k = std::stoul(args["--k"]);
 
   LlmScorer scorer;
-  const bool useModel = !args["--model"].empty();
-  if (useModel) {
+  const bool useLlm = !args["--model"].empty();
+  const bool useModel = useLlm || useLaya;
+  if (useLlm) {
     LlmScorer::LoadBackends(ExeDir());
     for (const auto& d : LlmScorer::Devices()) {
       printf("device %-10s %s (%.1f GB)\n", d.name.c_str(), d.description.c_str(),
@@ -187,9 +262,12 @@ int main(int argc, char** argv) {
       if (s.Text() == truth) r.truth = static_cast<int>(r.texts.size()) - 1;
     }
     if (useModel) {
-      const std::string context = args["--prefix"] + (useContext ? row.context : "");
       auto start = std::chrono::steady_clock::now();
-      r.lm = scorer.Score(context, candidates);
+      if (useLaya) {
+        r.lm = laya.Score(useContext ? row.context : "", candidates);
+      } else {
+        r.lm = scorer.Score(args["--prefix"] + (useContext ? row.context : ""), candidates);
+      }
       latencyMs.push_back(
           std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
               .count());

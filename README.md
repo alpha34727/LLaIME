@@ -22,6 +22,13 @@
 
 ## 建置
 
+選字引擎需要 llama.cpp 與 ONNX Runtime（先各執行一次）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build-llama.ps1
+powershell -ExecutionPolicy Bypass -File scripts\fetch-onnxruntime.ps1
+```
+
 ```powershell
 cmake --preset x64; cmake --build --preset x64-debug
 cmake --preset x86; cmake --build --preset x86-debug
@@ -58,3 +65,15 @@ uv run python prepare_lexicon.py   # 下載資料來源並產生 data\build\lexi
 | 教育部《重編國語辭典修訂本》 | CC BY-ND 3.0 TW | 補充詞條與讀音 |
 
 補充詞只收 McBopomofo 沒有的詞，原有的讀音與分數不變。教育部辭典採「禁止改作」授權，本專案不附原始檔，由腳本自行下載；若要散布含這些詞條的 `lexicon.bin`，需先確認是否符合授權條款。
+
+## 選字模型
+
+`%LOCALAPPDATA%\LLaIME\engine.ini` 的 `[model] ranker`：
+
+| 值 | 說明 |
+|---|---|
+| `auto`（預設） | 有 GPU 用 `llm`，否則用 `laya` |
+| `llm` | 因果語言模型（llama.cpp，`[model] path` 指定 GGUF），有顯示卡時最準 |
+| `laya` | CPU 模式：微調過的 Laya 排序器（ONNX Runtime，`[laya] path` 指定 `models\laya-zh`），純 CPU 每次約 50 ms |
+
+Laya 模型由 `tools/prune_laya_vocab.py` 與 `tools/export_laya_tokenizer.py` 從微調後的檢查點產生（見 `tests/eval/RESULTS.md`）。
