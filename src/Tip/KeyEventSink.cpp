@@ -28,27 +28,22 @@ KeyAction MakeInsert(std::wstring text) {
   return a;
 }
 
-// Ctrl / Ctrl+Shift punctuation, from Microsoft Bopomofo (Windows 11); the same in Chinese and
-// English mode except Ctrl+Shift+' (、 in English mode only). Keys not listed type nothing in
-// Microsoft Bopomofo and are left to the app as shortcuts.
-std::wstring CtrlPunctuation(wchar_t usChar, bool shift, bool englishMode) {
+// Ctrl / Ctrl+Shift punctuation, from Microsoft Bopomofo (Windows 11), in both Chinese and
+// English mode. Keys not listed are left to the app as shortcuts.
+std::wstring CtrlPunctuation(wchar_t usChar, bool shift) {
   struct Entry {
     wchar_t key;  // unshifted US character
     const wchar_t* ctrl;
     const wchar_t* ctrlShift;
-    const wchar_t* ctrlShiftEnglish;  // English mode, when it differs
   };
   static constexpr Entry kTable[] = {
-      {L'1', nullptr, L"！", nullptr},  {L'[', L"【", L"｛", nullptr},
-      {L']', L"】", L"｝", nullptr},     {L';', L"；", L"：", nullptr},
-      {L'\'', L"、", nullptr, L"、"},   {L',', L"，", nullptr, nullptr},
-      {L'.', L"。", nullptr, nullptr},  {L'/', nullptr, L"？", nullptr},
+      {L'1', nullptr, L"！"}, {L'[', L"【", L"｛"},  {L']', L"】", L"｝"},
+      {L';', L"；", L"："},   {L'\'', L"、", nullptr}, {L',', L"，", nullptr},
+      {L'.', L"。", nullptr}, {L'/', nullptr, L"？"},
   };
   for (const Entry& e : kTable) {
     if (e.key != usChar) continue;
-    const wchar_t* text = !shift                             ? e.ctrl
-                          : englishMode && e.ctrlShiftEnglish ? e.ctrlShiftEnglish
-                                                              : e.ctrlShift;
+    const wchar_t* text = shift ? e.ctrlShift : e.ctrl;
     return text ? text : L"";
   }
   return {};
@@ -88,7 +83,7 @@ KeyAction TextService::ClassifyKey(WPARAM vk) const {
     // English mode intercepts Ctrl punctuation, and printable keys when typing full-width.
     if (mods.alt) return Make(Type::PassThrough);
     if (mods.ctrl) {
-      std::wstring punct = CtrlPunctuation(UsCharFromVirtualKey(vk, false), mods.shift, true);
+      std::wstring punct = CtrlPunctuation(UsCharFromVirtualKey(vk, false), mods.shift);
       return punct.empty() ? Make(Type::PassThrough) : MakeInsert(punct);
     }
     if (!fullShape_) return Make(Type::PassThrough);
@@ -99,7 +94,7 @@ KeyAction TextService::ClassifyKey(WPARAM vk) const {
   const bool composing = IsComposing();
   if (mods.alt) return Make(Type::PassThrough);
   if (mods.ctrl) {
-    std::wstring punct = CtrlPunctuation(UsCharFromVirtualKey(vk, false), mods.shift, false);
+    std::wstring punct = CtrlPunctuation(UsCharFromVirtualKey(vk, false), mods.shift);
     return punct.empty() ? Make(Type::PassThrough) : MakeLiteral(punct);
   }
 
