@@ -44,12 +44,6 @@ std::wstring Punctuation(const Lexicon* lexicon, wchar_t usChar) {
   return LookupPunctuation(lexicon, usChar, {L"_punctuation_Standard_", L"_punctuation_"});
 }
 
-// Ctrl+punctuation as in Microsoft Bopomofo: Ctrl+, ， Ctrl+. 。 Ctrl+/ ？ Ctrl+; ；
-// Ctrl+' 、 Ctrl+Shift+1 ！, falling back to the Shift table (Ctrl+Shift+; ：, Ctrl+[ 「).
-std::wstring CtrlPunctuation(const Lexicon* lexicon, wchar_t usChar) {
-  return LookupPunctuation(lexicon, usChar, {L"_ctrl_punctuation_", L"_punctuation_"});
-}
-
 // ASCII to its full-width form; space becomes the ideographic space.
 std::wstring ToFullWidth(wchar_t c) {
   if (c == L' ') return std::wstring(1, static_cast<wchar_t>(0x3000));
@@ -90,11 +84,8 @@ KeyAction TextService::ClassifyKey(WPARAM vk) const {
   const bool composing = IsComposing();
   if (mods.alt) return Make(Type::PassThrough);
   if (mods.ctrl) {
-    wchar_t ch = UsCharFromVirtualKey(vk, mods.shift);
-    if (ch && !iswalnum(ch) && ch != L' ') {
-      if (std::wstring punct = CtrlPunctuation(lexicon_, ch); !punct.empty()) {
-        return MakeLiteral(punct);
-      }
+    if (wchar_t punct = CtrlPunctuation(UsCharFromVirtualKey(vk, false), mods.shift)) {
+      return MakeLiteral(std::wstring(1, punct));
     }
     return Make(Type::PassThrough);
   }

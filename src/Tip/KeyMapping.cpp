@@ -24,6 +24,21 @@ wchar_t UsCharFromVirtualKey(WPARAM vk, bool shift) {
   return 0;
 }
 
+wchar_t CtrlPunctuation(wchar_t usChar, bool shift) {
+  struct Entry {
+    wchar_t key, ctrl, ctrlShift;
+  };
+  // Measured on Microsoft Bopomofo (Windows 11).
+  static constexpr Entry kTable[] = {
+      {L'[', L'【', L'｛'}, {L']', L'】', L'｝'}, {L';', L'；', L'：'}, {L'\'', L'、', 0},
+      {L',', L'，', 0},     {L'.', L'。', 0},     {L'1', 0, L'！'},     {L'/', 0, L'？'},
+  };
+  for (const Entry& e : kTable) {
+    if (e.key == usChar) return shift ? e.ctrlShift : e.ctrl;
+  }
+  return 0;
+}
+
 Modifiers Modifiers::Current() {
   Modifiers m;
   m.shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
