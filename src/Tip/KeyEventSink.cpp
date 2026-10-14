@@ -1,3 +1,5 @@
+#include <cwctype>
+
 #include "EditSession.h"
 #include "KeyMapping.h"
 #include "TextService.h"
@@ -99,9 +101,12 @@ KeyAction TextService::ClassifyKey(WPARAM vk) const {
   }
 
   // A plain character goes into the composition while composing, is inserted as full width in
-  // full-width mode, and otherwise reaches the app exactly as typed.
+  // full-width mode, and otherwise reaches the app exactly as typed. Punctuation always starts
+  // or joins the composition (shown underlined until committed), as in Microsoft Bopomofo.
   auto typeChar = [&](wchar_t c) {
-    if (composing) return MakeLiteral(fullShape_ ? ToFullWidth(c) : std::wstring(1, c));
+    if (composing || iswpunct(c)) {
+      return MakeLiteral(fullShape_ ? ToFullWidth(c) : std::wstring(1, c));
+    }
     return fullShape_ ? MakeInsert(ToFullWidth(c)) : Make(Type::PassThrough);
   };
 
