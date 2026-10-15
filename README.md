@@ -91,3 +91,20 @@ Laya 模型由 `tools/prune_laya_vocab.py` 與 `tools/export_laya_tokenizer.py` 
 密碼欄位與無痕視窗（私密模式）完全不學習。手動加詞、編輯與刪除使用者詞彙會放在設定程式的「使用者詞庫」頁（第 7 階段）。
 
 學習效果可用 `LLaIME.LearnSim` 模擬（使用者遇到錯字就從候選改選，再測同一批句子與另一批句子），結果見 `tests/eval/RESULTS.md`。
+
+## 隱私模式
+
+完全依照應用程式回報的欄位類型判斷（不看視窗標題）：TSF input scope 為 `IS_PASSWORD`、`IS_NUMERIC_PASSWORD`、PIN 類或 `IS_PRIVATE`（Chrome 無痕、Edge InPrivate、Firefox 私密視窗），或舊式 Win32 Edit 的 `ES_PASSWORD`。私密模式下：
+
+- 工作列「中／英」圖示加上盾牌；
+- 不學習、不送出上文（游標前的文字）給模型，引擎也不快取這些評分；
+- 仍可正常用詞庫與模型選字。
+
+端對端測試（會模擬按鍵，執行時請勿操作電腦；使用暫存的 `user.db`，不影響真正的詞庫）：
+
+```powershell
+build\x64\src\Engine\Release\LLaIME.PrivacyTest.exe              # 測試視窗內的四種欄位
+build\x64\src\Engine\Release\LLaIME.PrivacyTest.exe --browsers   # 加上 Chrome／Edge／Firefox 一般、密碼、私密視窗
+```
+
+2026-10-15 結果：13 種情況全部通過（Win32 Edit、`ES_PASSWORD`、`IS_PASSWORD`、`IS_PRIVATE`，以及三種瀏覽器的文字欄、密碼欄、私密視窗）。

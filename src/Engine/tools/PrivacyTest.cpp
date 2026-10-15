@@ -2,9 +2,9 @@
 // candidate and commits, in fields that are and are not private, then checks what reached the
 // engine and user.db.
 //
-//   LLaIME.PrivacyTest [--browsers]
+//   LLaIME.PrivacyTest [--browsers] [--only "Firefox text"]
 //
-// The test stops the running LLaIME.Engine and starts the installed one on a temporary user.db
+// The test stops the running LLaIME.Engine and starts its own on a temporary user.db
 // (the real one is never touched); the TIPs reconnect to it. It switches the session's keyboard
 // to LLaIME 注音 and back, and sends keystrokes with SendInput, so the desktop must be left alone
 // while it runs. With --browsers it also opens tests/privacy/*.html in Chrome, Edge and Firefox,
@@ -125,25 +125,33 @@ void Pump(DWORD ms) {
   }
 }
 
-// ㄧˋㄧˋ, open the candidates, pick the second, commit.
-void TypeAndPick() {
-  for (WORD vk : {'U', '4', 'U', '4'}) Key(vk);
-  Pump(400);
-  Key(VK_DOWN);
-  Pump(400);
-  Key('2');
-  Pump(200);
-  Key(VK_RETURN);
+// ㄧˋㄧˋ, open the candidates, pick the second, commit. Every key goes only to `target`: if
+// another window comes to the front, typing stops (false) so nothing lands in the user's apps.
+bool TypeAndPick(HWND target) {
+  struct Step {
+    WORD vk;
+    DWORD pause;
+  };
+  const Step steps[] = {{'U', 0},         {'4', 0},   {'U', 0},         {'4', 400},
+                        {VK_DOWN, 400},   {'2', 200}, {VK_RETURN, 0}};
+  for (const auto& [vk, pause] : steps) {
+    if (GetForegroundWindow() != target) return false;
+    Key(vk);
+    if (pause) Pump(pause);
+  }
+  return true;
 }
 
 struct Outcome {
-  uint32_t ranks = 0, privateRanks = 0, contextRanks = 0;
-  size_t picks = 0;
+  uint32_t ranks = 0, privateRanks = 0, contextRanks = 0, learns = 0;
+  uint32_t dbVersion = 0;  // changes whenever user.db is written
 };
 
 class Probe {
  public:
-  explicit Probe(const fs::path& db) : db_(db) {}
+  // One connection for the whole run: opening user.db writes to it (schema, pruning), which
+  // would compete with the engine's own writes.
+  explicit Probe(const fs::path& db) { store_.Open(db.wstring()); }
   Outcome Now() {
     Outcome o;
     proto::StatusResponse s;
@@ -151,15 +159,27 @@ class Probe {
       o.ranks = s.rankRequests;
       o.privateRanks = s.privateRankRequests;
       o.contextRanks = s.contextRankRequests;
+      o.learns = s.learnRequests;
     }
-    llaime::UserStore store;
-    if (store.Open(db_.wstring())) o.picks = store.Snapshot(0).selections.size();
+    o.dbVersion = store_.Version();
     return o;
   }
 
  private:
-  fs::path db_;
+  llaime::UserStore store_;
 };
+
+// What typing in a field led to: waits for a commit's learning to reach user.db (a normal
+// field), or long enough that it would have (a private one).
+Outcome Settle(Probe& probe, const Outcome& before) {
+  Outcome now;
+  for (int i = 0; i < 25; ++i) {
+    Pump(200);
+    now = probe.Now();
+    if (now.learns > before.learns && now.dbVersion != before.dbVersion) break;
+  }
+  return now;
+}
 
 struct Result {
   std::wstring name;
@@ -172,16 +192,18 @@ Result Judge(const std::wstring& name, bool expectPrivate, const Outcome& a, con
              const std::wstring& text) {
   const uint32_t ranks = b.ranks - a.ranks, priv = b.privateRanks - a.privateRanks;
   const uint32_t context = b.contextRanks - a.contextRanks;
-  const size_t picks = b.picks - a.picks;
+  const uint32_t learns = b.learns - a.learns;
+  const bool written = b.dbVersion != a.dbVersion;
   bool pass;
   if (expectPrivate) {
-    pass = picks == 0 && priv == ranks && context == 0;
+    pass = learns == 0 && !written && priv == ranks && context == 0;
   } else {
-    pass = picks > 0 && priv == 0 && ranks > 0;
+    pass = learns > 0 && written && priv == 0 && ranks > 0;
   }
   wchar_t detail[256];
-  swprintf_s(detail, L"rank %u (private %u, context %u), picks learned %zu%s%s", ranks, priv,
-             context, picks, text.empty() ? L"" : L", text: ", text.c_str());
+  swprintf_s(detail, L"rank %u (private %u, context %u), learn %u, user.db %ls%ls%ls", ranks,
+             priv, context, learns, written ? L"written" : L"unchanged",
+             text.empty() ? L"" : L", text: ", text.c_str());
   return {name, expectPrivate, pass, detail};
 }
 
@@ -229,11 +251,15 @@ std::vector<Result> RunWin32(Probe& probe) {
     SetFocus(edits[i]);
     Pump(500);
     const Outcome before = probe.Now();
-    TypeAndPick();
-    Pump(1500);
+    if (!TypeAndPick(window)) {
+      results.push_back({fields[i].name, fields[i].expectPrivate, false,
+                         L"the test window lost the focus; stopped typing"});
+      continue;
+    }
+    const Outcome after = Settle(probe, before);
     wchar_t text[64] = {};
     GetWindowTextW(edits[i], text, 64);
-    results.push_back(Judge(fields[i].name, fields[i].expectPrivate, before, probe.Now(),
+    results.push_back(Judge(fields[i].name, fields[i].expectPrivate, before, after,
                             fields[i].style & ES_PASSWORD ? L"" : text));
   }
   DestroyWindow(window);
@@ -281,25 +307,33 @@ std::optional<Result> RunBrowser(Probe& probe, const std::wstring& name, const f
     hwnd = FindTestWindow();
   }
   if (!hwnd) return Result{name, expectPrivate, false, L"the test page did not open"};
-  // Bring it to the front: a click-free way that works from a foreground process.
-  Key(VK_MENU);
-  SetForegroundWindow(hwnd);
-  Pump(2000);  // page load and autofocus
+  // Bring it to the front without keystrokes (a lone Alt would focus the browser's menu).
+  if (GetForegroundWindow() != hwnd) {
+    const DWORD fgThread = GetWindowThreadProcessId(GetForegroundWindow(), nullptr);
+    const DWORD self = GetCurrentThreadId();
+    AttachThreadInput(self, fgThread, TRUE);
+    SetForegroundWindow(hwnd);
+    BringWindowToTop(hwnd);
+    AttachThreadInput(self, fgThread, FALSE);
+  }
+  Pump(3500);  // page load and autofocus (a browser's first window can be slow)
   if (GetForegroundWindow() != hwnd) {
     return Result{name, expectPrivate, false, L"could not bring the test window to the front"};
   }
   const Outcome before = probe.Now();
-  TypeAndPick();
-  Pump(1500);
-  Result r = Judge(name, expectPrivate, before, probe.Now(), L"");
-  if (GetForegroundWindow() == hwnd) {
-    Key('W', true);  // close the tab (and its window) we opened
-    Pump(800);
+  if (!TypeAndPick(hwnd)) {
+    return Result{name, expectPrivate, false, L"the test window lost the focus; stopped typing"};
   }
+  Result r = Judge(name, expectPrivate, before, Settle(probe, before), L"");
+  if (GetForegroundWindow() == hwnd) {
+    Key(VK_ESCAPE);  // drop anything still being composed
+    if (GetForegroundWindow() == hwnd) Key('W', true);  // close the tab (and window) we opened
+  }
+  Pump(3000);  // let the focus settle on whatever window comes forward
   return r;
 }
 
-std::vector<Result> RunBrowsers(Probe& probe, const fs::path& pages) {
+std::vector<Result> RunBrowsers(Probe& probe, const fs::path& pages, const std::wstring& only) {
   auto url = [&](const wchar_t* page) {
     std::wstring u = L"file:///" + (pages / page).generic_wstring();
     return u;
@@ -326,6 +360,7 @@ std::vector<Result> RunBrowsers(Probe& probe, const fs::path& pages) {
   };
   std::vector<Result> results;
   for (const Case& c : cases) {
+    if (!only.empty() && !wcsstr(c.name, only.c_str())) continue;
     if (auto r = RunBrowser(probe, c.name, c.exe, c.args, c.expectPrivate)) {
       results.push_back(*r);
       wprintf(L"  %-28ls %ls\n", r->name.c_str(), r->pass ? L"pass" : L"FAIL");
@@ -338,17 +373,29 @@ std::vector<Result> RunBrowsers(Probe& probe, const fs::path& pages) {
 
 int wmain(int argc, wchar_t** argv) {
   SetConsoleOutputCP(CP_UTF8);
-  bool browsers = false;
-  for (int i = 1; i < argc; ++i) browsers |= std::wstring(argv[i]) == L"--browsers";
+  bool browsers = false, win32 = true;
+  std::wstring only;  // --only <text>: just the browser cases whose name contains it
+  for (int i = 1; i < argc; ++i) {
+    const std::wstring arg = argv[i];
+    browsers |= arg == L"--browsers";
+    if (arg == L"--only" && i + 1 < argc) {
+      only = argv[++i];
+      browsers = true;
+      win32 = false;
+    }
+  }
 
+  wchar_t exePath[MAX_PATH];
+  GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+  // The engine built next to this test, else the installed one; the installed TIPs talk to
+  // either (same protocol version).
   const fs::path root = InstallRoot();
-  const fs::path engineExe = root / L"engine" / L"LLaIME.Engine.exe";
+  fs::path engineExe = fs::path(exePath).parent_path() / L"LLaIME.Engine.exe";
+  if (!fs::exists(engineExe)) engineExe = root / L"engine" / L"LLaIME.Engine.exe";
   if (root.empty() || !fs::exists(engineExe)) {
     fwprintf(stderr, L"LLaIME is not installed (run scripts/dev-install.ps1)\n");
     return 1;
   }
-  wchar_t exePath[MAX_PATH];
-  GetModuleFileNameW(nullptr, exePath, MAX_PATH);
   // build/x64/src/Engine/<config>/ -> repo
   const fs::path pages =
       fs::path(exePath).parent_path().parent_path().parent_path().parent_path().parent_path()
@@ -369,10 +416,20 @@ int wmain(int argc, wchar_t** argv) {
   StopEngines();
   std::wstring cmd = L"\"" + engineExe.wstring() + L"\" --userdb \"" + db.wstring() +
                      L"\" --ranker llm --model none --laya none";
+  // The engine's messages (never typed text) go to a log next to the temporary user.db.
+  const fs::path log = fs::path(tmp) / L"llaime-privacytest.log";
+  SECURITY_ATTRIBUTES inherit{sizeof(inherit), nullptr, TRUE};
+  HANDLE logFile = CreateFileW(log.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &inherit,
+                               CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
   STARTUPINFOW si{sizeof(si)};
+  si.dwFlags = STARTF_USESTDHANDLES;
+  si.hStdError = si.hStdOutput = logFile;
   PROCESS_INFORMATION engine{};
-  if (!CreateProcessW(engineExe.c_str(), cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
-                      nullptr, engineExe.parent_path().c_str(), &si, &engine)) {
+  const BOOL started =
+      CreateProcessW(engineExe.c_str(), cmd.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
+                     nullptr, engineExe.parent_path().c_str(), &si, &engine);
+  CloseHandle(logFile);
+  if (!started) {
     fwprintf(stderr, L"cannot start %ls\n", engineExe.c_str());
     return 1;
   }
@@ -402,11 +459,13 @@ int wmain(int argc, wchar_t** argv) {
   Probe probe(db);
   std::vector<Result> results;
   if (switched) {
-    wprintf(L"Win32 fields...\n");
-    results = RunWin32(probe);
+    if (win32) {
+      wprintf(L"Win32 fields...\n");
+      results = RunWin32(probe);
+    }
     if (browsers) {
       wprintf(L"Browsers...\n");
-      auto more = RunBrowsers(probe, pages);
+      auto more = RunBrowsers(probe, pages, only);
       results.insert(results.end(), more.begin(), more.end());
     }
   }
@@ -422,6 +481,7 @@ int wmain(int argc, wchar_t** argv) {
   CloseHandle(engine.hProcess);
   CloseHandle(engine.hThread);
   removeDb();
+  profiles.Reset();  // before CoUninitialize
   CoUninitialize();
 
   int failures = switched ? 0 : 1;
