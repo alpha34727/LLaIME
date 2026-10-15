@@ -115,13 +115,6 @@ void TextService::UpdateComposition(ITfContext* context, TfEditCookie ec) {
   if (FAILED(composition_->GetRange(&range))) return;
   range->SetText(ec, 0, display.c_str(), static_cast<LONG>(display.size()));
   ApplyDisplayAttribute(context, ec, range.Get(), inputAttributeAtom_);
-  if (auto [markStart, markEnd] = MarkedRange(); markStart < markEnd) {
-    const LONG b = static_cast<LONG>(composer_.TextOffsetOf(markStart));
-    const LONG e = static_cast<LONG>(composer_.TextOffsetOf(markEnd));
-    if (ComPtr<ITfRange> marked = SubRange(range.Get(), ec, b, e)) {
-      ApplyDisplayAttribute(context, ec, marked.Get(), markAttributeAtom_);
-    }
-  }
   if (readingInvalid_ && !readingText.empty()) {
     const LONG begin = static_cast<LONG>(insertAt);
     if (ComPtr<ITfRange> bad = SubRange(range.Get(), ec, begin, caret)) {
@@ -206,7 +199,6 @@ void TextService::ResetState() {
   CloseCandidates();
   composer_.Clear();
   reading_.Clear();
-  markAnchor_.reset();
   composition_.Reset();
   compositionContext_.Reset();
   ApplyUserDictionary();

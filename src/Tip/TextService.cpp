@@ -7,7 +7,6 @@
 #include "EditSession.h"
 #include "Globals.h"
 #include "ui/CandidateWindow.h"
-#include "ui/NoticeWindow.h"
 #include "EngineClient.h"
 #include "ui/ThemeWatcher.h"
 
@@ -91,7 +90,6 @@ STDMETHODIMP TextService::ActivateEx(ITfThreadMgr* threadMgr, TfClientId clientI
                                  IID_PPV_ARGS(&categoryMgr)))) {
     categoryMgr->RegisterGUID(GUID_DisplayAttributeInput, &inputAttributeAtom_);
     categoryMgr->RegisterGUID(GUID_DisplayAttributeError, &errorAttributeAtom_);
-    categoryMgr->RegisterGUID(GUID_DisplayAttributeConverted, &markAttributeAtom_);
   }
 
   // Mouse actions arrive outside a key event, so they need their own edit sessions.
@@ -108,7 +106,6 @@ STDMETHODIMP TextService::ActivateEx(ITfThreadMgr* threadMgr, TfClientId clientI
       [this] { OpenEmojiPanel(); },
   });
 
-  notice_ = std::make_unique<NoticeWindow>();
   engine_ = std::make_unique<EngineClient>(EngineClient::Handlers{
       [this](const protocol::RankResponse& response) { OnRankResponse(response); },
       [this](const protocol::UserDictResponse& response) { OnUserDictResponse(response); },
@@ -139,7 +136,6 @@ STDMETHODIMP TextService::Deactivate() {
   }
   ResetState();
   engine_.reset();
-  notice_.reset();
   candidateWindow_.reset();
   UninitInputMode();
   UninitLangBar();

@@ -3,7 +3,6 @@
 #include "Register.h"
 #include "EngineClient.h"
 #include "ui/CandidateWindow.h"
-#include "ui/NoticeWindow.h"
 #include "ui/PopupMenu.h"
 #include "ui/ThemeWatcher.h"
 
@@ -31,7 +30,6 @@ STDAPI DllGetClassObject(REFCLSID clsid, REFIID riid, void** ppv) {
 STDAPI DllCanUnloadNow() {
   if (g_dllRefCount != 0) return S_FALSE;
   CandidateWindow::UnregisterClass();
-  NoticeWindow::UnregisterClass();
   UnregisterPopupMenuClass();
   ThemeWatcher::UnregisterClass();
   EngineClient::UnregisterClass();
