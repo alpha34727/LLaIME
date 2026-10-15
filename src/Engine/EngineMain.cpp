@@ -12,11 +12,18 @@
 //   path=C:\...\models\laya-zh  ; laya.int8.onnx + tokenizer.bin
 //   threads=0            ; 0: ONNX Runtime default
 // Command line overrides: --ranker <name> --model <path> --device <name> --laya <dir>
+//                         --userdb <path> (instead of user.db, for tests)
+//
+// The user dictionary (phrases and learned picks) lives in %LOCALAPPDATA%\LLaIME\user.db
+// (UserStore). The pipe is served from the start; the model loads in the background, and until
+// it is ready (or if none can load) rank requests are declined and the TIP keeps the lexicon's
+// conversion.
 #include <windows.h>
 #include <sddl.h>
 #include <shlobj.h>
 
 #include <atomic>
+#include <filesystem>
 #include <cstdio>
 #include <list>
 #include <mutex>
@@ -27,6 +34,7 @@
 
 #include "LayaScorer.h"
 #include "LlmScorer.h"
+#include "UserStore.h"
 #include "llaime/Protocol.h"
 
 using namespace llaime;
@@ -59,15 +67,18 @@ std::wstring ExeDir() {
   return p.substr(0, p.find_last_of(L"\\/"));
 }
 
-std::wstring SettingsPath() {
+// %LOCALAPPDATA%\LLaIME
+std::wstring DataDir() {
   PWSTR local = nullptr;
   std::wstring path;
   if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &local))) {
-    path = std::wstring(local) + L"\\LLaIME\\engine.ini";
+    path = std::wstring(local) + L"\\LLaIME";
     CoTaskMemFree(local);
   }
   return path;
 }
+
+std::wstring SettingsPath() { return DataDir() + L"\\engine.ini"; }
 
 std::wstring ReadSetting(const wchar_t* section, const wchar_t* key, const wchar_t* fallback) {
   wchar_t buf[1024];
@@ -161,22 +172,87 @@ class Engine {
     return true;
   }
 
-  bool IsLoaded() const { return scorer_.IsLoaded() || laya_.IsLoaded(); }
-  const std::wstring& modelName() const { return modelName_; }
+  // Loads the ranker on a background thread; requests are declined until it is ready.
+  void StartInBackground(Settings settings) {
+    std::thread([this, settings] {
+      if (Start(settings)) {
+        ready_ = true;
+        fprintf(stderr, "LLaIME engine ready: %ls\n", modelName_.c_str());
+      } else {
+        fprintf(stderr, "no ranker could be loaded (%ls)\n", SettingsPath().c_str());
+      }
+    }).detach();
+  }
+
+  bool OpenUserStore(const std::wstring& path) {
+    std::string error;
+    if (store_.Open(path, &error)) return true;
+    fprintf(stderr, "user.db: %s\n", error.c_str());
+    return false;
+  }
+
+  bool IsLoaded() const { return ready_ && (scorer_.IsLoaded() || laya_.IsLoaded()); }
 
   std::vector<uint8_t> Handle(const std::vector<uint8_t>& message) {
     proto::Reader in(message.data(), message.size());
     auto type = in.Header();
-    if (type == proto::MessageType::StatusRequest) {
-      proto::StatusResponse status{IsLoaded(), modelName_, deviceName_};
-      return proto::Encode(status);
+    switch (type.value_or(proto::MessageType::Ack)) {
+      case proto::MessageType::StatusRequest: {
+        proto::StatusResponse status;
+        status.modelLoaded = IsLoaded();
+        if (status.modelLoaded) {
+          status.model = modelName_;
+          status.device = deviceName_;
+        }
+        return proto::Encode(status);
+      }
+      case proto::MessageType::RankRequest:
+        return HandleRank(in);
+      case proto::MessageType::UserDictRequest: {
+        proto::UserDictRequest request;
+        if (!proto::Decode(in, &request)) break;
+        return proto::Encode(store_.Snapshot(request.knownVersion));
+      }
+      case proto::MessageType::LearnRequest: {
+        proto::LearnRequest request;
+        proto::Ack ack{proto::MessageType::LearnRequest};
+        if (proto::Decode(in, &request)) ack.ok = store_.Learn(request);
+        ack.userVersion = store_.Version();
+        return proto::Encode(ack);
+      }
+      case proto::MessageType::PhraseRequest: {
+        proto::PhraseRequest request;
+        proto::Ack ack{proto::MessageType::PhraseRequest};
+        if (proto::Decode(in, &request)) {
+          ack.text = request.text;
+          ack.ok = request.op == proto::PhraseRequest::Add
+                       ? store_.AddPhrase(request.reading, request.text)
+                       : store_.RemovePhrase(request.reading, request.text);
+        }
+        ack.userVersion = store_.Version();
+        return proto::Encode(ack);
+      }
+      case proto::MessageType::SetLearningRequest: {
+        proto::SetLearningRequest request;
+        proto::Ack ack{proto::MessageType::SetLearningRequest};
+        if (proto::Decode(in, &request)) ack.ok = store_.SetLearningEnabled(request.enabled);
+        ack.userVersion = store_.Version();
+        return proto::Encode(ack);
+      }
+      default:
+        break;
     }
+    return proto::Encode(proto::Ack{});
+  }
+
+ private:
+  std::vector<uint8_t> HandleRank(proto::Reader& in) {
     proto::RankResponse response;
     proto::RankRequest request;
-    if (type != proto::MessageType::RankRequest || !proto::Decode(in, &request)) {
-      return proto::Encode(response);
-    }
+    response.userVersion = store_.Version();
+    if (!proto::Decode(in, &request)) return proto::Encode(response);
     response.requestId = request.requestId;
+    if (!IsLoaded()) return proto::Encode(response);
 
     std::wstring key = request.context;
     for (const auto& c : request.candidates) key += L'\x1f' + c;
@@ -198,9 +274,10 @@ class Engine {
     return proto::Encode(response);
   }
 
- private:
   LlmScorer scorer_;
   LayaScorer laya_;
+  UserStore store_;
+  std::atomic<bool> ready_ = false;
   std::mutex mutex_;  // one llama context: requests are scored one at a time
   ScoreCache cache_;
   std::wstring modelName_, deviceName_;
@@ -256,12 +333,14 @@ int wmain(int argc, wchar_t** argv) {
   settings.device = ReadSetting(L"model", L"device", L"auto");
   settings.layaDir = ReadSetting(L"laya", L"path", L"");
   settings.layaThreads = _wtoi(ReadSetting(L"laya", L"threads", L"0").c_str());
+  std::wstring userDb = DataDir() + L"\\user.db";
   for (int i = 1; i + 1 < argc; i += 2) {
     std::wstring key = argv[i];
     if (key == L"--ranker") settings.ranker = argv[i + 1];
     if (key == L"--model") settings.model = argv[i + 1];
     if (key == L"--device") settings.device = argv[i + 1];
     if (key == L"--laya") settings.layaDir = argv[i + 1];
+    if (key == L"--userdb") userDb = argv[i + 1];
   }
 
   const std::wstring sid = proto::CurrentUserSid();
@@ -270,11 +349,10 @@ int wmain(int argc, wchar_t** argv) {
   if (GetLastError() == ERROR_ALREADY_EXISTS) return 0;
 
   Engine engine;
-  if (!engine.Start(settings)) {
-    fprintf(stderr, "no ranker could be loaded (%ls)\n", SettingsPath().c_str());
-    return 1;
-  }
-  fprintf(stderr, "LLaIME engine ready: %ls\n", engine.modelName().c_str());
+  std::error_code ec;
+  std::filesystem::create_directories(DataDir(), ec);
+  engine.OpenUserStore(userDb);
+  engine.StartInBackground(settings);
 
   SECURITY_ATTRIBUTES sa{};
   PSECURITY_DESCRIPTOR sd = nullptr;

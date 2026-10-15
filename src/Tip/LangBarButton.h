@@ -21,6 +21,8 @@ class LangBarButton final : public ITfLangBarItemButton, public ITfSource {
     std::function<bool()> isPrivate;
     std::function<void()> toggleChinese;
     std::function<void()> toggleFullShape;
+    std::function<bool()> isLearningPaused;
+    std::function<void()> toggleLearning;
   };
 
   explicit LangBarButton(Callbacks callbacks);

@@ -7,6 +7,7 @@ add_library(LLaIME.TipUi STATIC
   ui/PopupMenu.cpp
   ui/ThemeWatcher.cpp
   ui/CandidateWindow.cpp
+  ui/NoticeWindow.cpp
 )
 target_include_directories(LLaIME.TipUi PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(LLaIME.TipUi PUBLIC d2d1 dwrite dwmapi shcore windowscodecs)
@@ -25,6 +26,7 @@ add_library(LLaIME.Tip SHARED
   Privacy.cpp
   EngineClient.cpp
   Ranking.cpp
+  UserDict.cpp
   Tip.def
   Tip.rc
 )

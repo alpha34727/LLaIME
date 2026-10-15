@@ -11,6 +11,7 @@
 
 #include "Globals.h"
 #include "ui/CandidateWindow.h"
+#include "ui/NoticeWindow.h"
 #include "ui/PopupMenu.h"
 #include "ui/TextIcon.h"
 #include "ui/Theme.h"
@@ -100,6 +101,16 @@ void PreviewCandidates(const std::wstring& dir, const wchar_t* suffix) {
   }
 }
 
+void PreviewNotice(const std::wstring& dir, const wchar_t* suffix) {
+  NoticeWindow notice;
+  notice.Show(L"已加入「柏昀」", RECT{300, 300, 320, 320});
+  Pump(300);
+  if (HWND hwnd = FindWindowW(L"LLaIME.NoticeWindow", nullptr)) {
+    SavePng(hwnd, dir + L"/notice_" + suffix + L".png");
+  }
+  notice.Hide();
+}
+
 void PreviewMenu(const std::wstring& dir, const wchar_t* suffix) {
   std::wstring path = dir + L"\\menu_" + suffix + L".png";
   // The menu runs a modal loop; capture it from another thread, then dismiss it by
@@ -121,6 +132,8 @@ void PreviewMenu(const std::wstring& dir, const wchar_t* suffix) {
       {0, L"", false, true},
       {3, L"半形", true},
       {4, L"全形", false},
+      {0, L"", false, true},
+      {5, L"暫停學習", false},
   });
   capture.join();
 }
@@ -165,6 +178,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR cmdLine, int) {
     Theme::OverrideForPreview(dark);
     const wchar_t* suffix = dark ? L"dark" : L"light";
     PreviewCandidates(dir, suffix);
+    PreviewNotice(dir, suffix);
     PreviewMenu(dir, suffix);
   }
   PreviewTaskbarIcons(dir);

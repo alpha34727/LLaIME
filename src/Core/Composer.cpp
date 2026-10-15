@@ -90,6 +90,12 @@ const Composer::Pin* Composer::PinFor(size_t start, size_t length, bool* conflic
   return nullptr;
 }
 
+bool Composer::Lookup(std::span<const Syllable> seq, std::vector<LexEntry>& out) const {
+  if (user_) return user_->Lookup(lexicon_, seq, out);
+  out.clear();
+  return lexicon_ && lexicon_->Lookup(seq, out);
+}
+
 std::vector<Syllable> Composer::Syllables(size_t start, size_t length) const {
   std::vector<Syllable> out;
   for (size_t i = start; i < start + length && i < elements_.size(); ++i) {
@@ -114,7 +120,7 @@ Composer::SpanResult Composer::SpanOptions(size_t i, size_t len, size_t maxOptio
   }
   if (SpanHasLiteral(i, len)) return SpanResult::Stop;
   std::vector<LexEntry> entries;
-  if (lexicon_ && lexicon_->Lookup(Syllables(i, len), entries)) {
+  if (Lookup(Syllables(i, len), entries)) {
     for (size_t k = 0; k < entries.size() && k < maxOptions; ++k) {
       out.push_back({i, len, std::wstring(entries[k].text), entries[k].score, false});
     }
@@ -253,7 +259,7 @@ size_t Composer::TextOffsetOf(size_t index) const {
 std::vector<Candidate> Composer::CandidatesAtCursor() const {
   std::vector<Candidate> out;
   const size_t n = elements_.size();
-  if (n == 0 || !lexicon_) return out;
+  if (n == 0 || (!lexicon_ && !user_)) return out;
   const bool atEnd = cursor_ >= n;
   const size_t anchor = atEnd ? n : cursor_;
 
@@ -268,8 +274,7 @@ std::vector<Candidate> Composer::CandidatesAtCursor() const {
       start = anchor;
     }
     if (SpanHasLiteral(start, len)) continue;
-    entries.clear();
-    if (!lexicon_->Lookup(Syllables(start, len), entries)) continue;
+    if (!Lookup(Syllables(start, len), entries)) continue;
     for (const LexEntry& e : entries) {
       bool dup = std::any_of(out.begin(), out.end(),
                              [&](const Candidate& c) { return c.text == e.text; });

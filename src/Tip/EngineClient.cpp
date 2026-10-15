@@ -1,5 +1,6 @@
 #include "EngineClient.h"
 
+#include <chrono>
 #include <filesystem>
 
 #include "Globals.h"
@@ -12,6 +13,9 @@ constexpr UINT kResponseMessage = WM_APP + 1;
 constexpr DWORD kConnectWaitMs = 100;
 // Do not try to start the engine more often than this.
 constexpr ULONGLONG kLaunchIntervalMs = 30'000;
+// Messages other than ranking wait this long for the engine to come up.
+constexpr int kMaxAttempts = 30;
+constexpr int kRetryMs = 1000;
 
 bool g_classRegistered = false;
 
@@ -32,8 +36,8 @@ void EngineClient::UnregisterClass() {
   if (g_classRegistered && ::UnregisterClassW(kClassName, g_hInst)) g_classRegistered = false;
 }
 
-EngineClient::EngineClient(ResponseHandler onResponse)
-    : onResponse_(std::move(onResponse)),
+EngineClient::EngineClient(Handlers handlers)
+    : handlers_(std::move(handlers)),
       pipeName_(protocol::PipeName(protocol::CurrentUserSid())) {
   if (!g_classRegistered) {
     WNDCLASSEXW wc{sizeof(wc)};
@@ -71,17 +75,47 @@ void EngineClient::Submit(protocol::RankRequest request) {
   wake_.notify_one();
 }
 
+void EngineClient::Send(std::vector<uint8_t> message) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    queue_.push_back({std::move(message)});
+  }
+  wake_.notify_one();
+}
+
 void EngineClient::Run() {
+  std::unique_lock<std::mutex> lock(mutex_);
   for (;;) {
-    protocol::RankRequest request;
-    {
-      std::unique_lock<std::mutex> lock(mutex_);
-      wake_.wait(lock, [this] { return stopping_ || pending_.has_value(); });
-      if (stopping_) return;
-      request = std::move(*pending_);
-      pending_.reset();
-    }
+    wake_.wait(lock, [this] { return stopping_ || pending_.has_value() || !queue_.empty(); });
+    if (stopping_) return;
     std::vector<uint8_t> reply;
+    if (!queue_.empty()) {
+      // Only this thread removes from the queue, so its front stays put while unlocked.
+      const std::vector<uint8_t> message = queue_.front().message;
+      lock.unlock();
+      const bool sent = EnsureConnected() && Transact(message, &reply);
+      lock.lock();
+      if (sent) {
+        queue_.pop_front();
+        protocol::Reader in(reply.data(), reply.size());
+        const auto type = in.Header();
+        if (type == protocol::MessageType::UserDictResponse) {
+          protocol::UserDictResponse r;
+          if (protocol::Decode(in, &r)) Deliver(std::move(r));
+        } else if (type == protocol::MessageType::Ack) {
+          protocol::Ack r;
+          if (protocol::Decode(in, &r)) Deliver(std::move(r));
+        }
+      } else if (++queue_.front().attempts >= kMaxAttempts) {
+        queue_.pop_front();  // the engine is not coming
+      } else {
+        wake_.wait_for(lock, std::chrono::milliseconds(kRetryMs), [this] { return stopping_; });
+      }
+      continue;
+    }
+    protocol::RankRequest request = std::move(*pending_);
+    pending_.reset();
+    lock.unlock();
     protocol::RankResponse response;
     response.requestId = request.requestId;
     if (EnsureConnected() && Transact(protocol::Encode(request), &reply)) {
@@ -90,14 +124,17 @@ void EngineClient::Run() {
         response.ok = false;
       }
     }
-    if (!response.ok) continue;  // the lexicon conversion already shown stays
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      if (stopping_) return;
-      responses_.push_back(std::move(response));
-    }
-    PostMessageW(window_, kResponseMessage, 0, 0);
+    lock.lock();
+    // A declined request still carries the user dictionary version.
+    if (response.ok || response.userVersion) Deliver(std::move(response));
   }
+}
+
+void EngineClient::Deliver(Response response) {
+  // Called with mutex_ held.
+  if (stopping_) return;
+  responses_.push_back(std::move(response));
+  PostMessageW(window_, kResponseMessage, 0, 0);
 }
 
 bool EngineClient::EnsureConnected() {
@@ -178,12 +215,20 @@ LRESULT CALLBACK EngineClient::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp
   } else if (msg == kResponseMessage) {
     auto* self = reinterpret_cast<EngineClient*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     if (!self) return 0;
-    std::deque<protocol::RankResponse> responses;
+    std::deque<Response> responses;
     {
       std::lock_guard<std::mutex> lock(self->mutex_);
       responses.swap(self->responses_);
     }
-    for (const auto& r : responses) self->onResponse_(r);
+    for (const auto& r : responses) {
+      if (auto* rank = std::get_if<protocol::RankResponse>(&r)) {
+        if (self->handlers_.rank) self->handlers_.rank(*rank);
+      } else if (auto* dict = std::get_if<protocol::UserDictResponse>(&r)) {
+        if (self->handlers_.userDict) self->handlers_.userDict(*dict);
+      } else if (auto* ack = std::get_if<protocol::Ack>(&r)) {
+        if (self->handlers_.ack) self->handlers_.ack(*ack);
+      }
+    }
     return 0;
   }
   return DefWindowProcW(hwnd, msg, wp, lp);

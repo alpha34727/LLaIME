@@ -95,6 +95,10 @@ KeyAction TextService::ClassifyKey(WPARAM vk) const {
 
   const bool composing = IsComposing();
   if (mods.alt) return Make(Type::PassThrough);
+  // Ctrl+= adds a phrase while composing (otherwise it is the app's, e.g. zoom).
+  if (mods.ctrl && !mods.shift && vk == VK_OEM_PLUS && composing && !CandidatesOpen()) {
+    return Make(Type::AddPhrase);
+  }
   if (mods.ctrl) {
     std::wstring punct = CtrlPunctuation(UsCharFromVirtualKey(vk, false), mods.shift);
     return punct.empty() ? Make(Type::PassThrough) : MakeLiteral(punct);
@@ -159,6 +163,9 @@ KeyAction TextService::ClassifyKey(WPARAM vk) const {
     return composing ? MakeLiteral(text) : MakeInsert(text);
   }
   if (!composing) return Make(Type::PassThrough);
+  if (mods.shift && (vk == VK_LEFT || vk == VK_RIGHT)) {
+    return Make(vk == VK_LEFT ? Type::MarkLeft : Type::MarkRight);
+  }
   switch (vk) {
     case VK_BACK: return Make(Type::Backspace);
     case VK_DELETE: return Make(Type::Delete);
@@ -191,6 +198,13 @@ void TextService::HandleAction(ITfContext* context, TfEditCookie ec, const KeyAc
   if (!candidateKey) CloseCandidates();
   // The invalid-syllable highlight lasts until the next key.
   if (action.type != Type::Swallow) readingInvalid_ = false;
+  // A marked range lasts while it is being extended.
+  if (action.type != Type::MarkLeft && action.type != Type::MarkRight &&
+      action.type != Type::AddPhrase && action.type != Type::Swallow) {
+    markAnchor_.reset();
+  }
+  // A new composition converts with the newest user dictionary.
+  if (!IsComposing()) ApplyUserDictionary();
 
   switch (action.type) {
     case Type::PassThrough:
@@ -280,6 +294,15 @@ void TextService::HandleAction(ITfContext* context, TfEditCookie ec, const KeyAc
     case Type::CandidateClose:
       CloseCandidates();
       return;
+    case Type::MarkLeft:
+      MoveMark(-1);
+      break;
+    case Type::MarkRight:
+      MoveMark(1);
+      break;
+    case Type::AddPhrase:
+      AddPhraseFromComposition(context, ec);
+      break;
     case Type::ToggleShape:
       SetFullShape(!fullShape_);
       return;

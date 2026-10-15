@@ -115,6 +115,13 @@ void TextService::UpdateComposition(ITfContext* context, TfEditCookie ec) {
   if (FAILED(composition_->GetRange(&range))) return;
   range->SetText(ec, 0, display.c_str(), static_cast<LONG>(display.size()));
   ApplyDisplayAttribute(context, ec, range.Get(), inputAttributeAtom_);
+  if (auto [markStart, markEnd] = MarkedRange(); markStart < markEnd) {
+    const LONG b = static_cast<LONG>(composer_.TextOffsetOf(markStart));
+    const LONG e = static_cast<LONG>(composer_.TextOffsetOf(markEnd));
+    if (ComPtr<ITfRange> marked = SubRange(range.Get(), ec, b, e)) {
+      ApplyDisplayAttribute(context, ec, marked.Get(), markAttributeAtom_);
+    }
+  }
   if (readingInvalid_ && !readingText.empty()) {
     const LONG begin = static_cast<LONG>(insertAt);
     if (ComPtr<ITfRange> bad = SubRange(range.Get(), ec, begin, caret)) {
@@ -146,12 +153,14 @@ void TextService::CommitOverflow(ITfContext* context, TfEditCookie ec) {
   if (ComPtr<ITfRange> rest = SubRange(range.Get(), ec, len, len)) {
     composition_->ShiftStart(ec, rest.Get());
   }
+  LearnFromCommit(drop);
   composer_.DropFront(drop);
 }
 
 void TextService::CommitAll(ITfContext* context, TfEditCookie ec) {
   CloseCandidates();
   if (composition_) {
+    LearnFromCommit(composer_.size());
     const std::wstring text = composer_.Text();
     ComPtr<ITfRange> range;
     if (SUCCEEDED(composition_->GetRange(&range))) {
@@ -197,12 +206,15 @@ void TextService::ResetState() {
   CloseCandidates();
   composer_.Clear();
   reading_.Clear();
+  markAnchor_.reset();
   composition_.Reset();
   compositionContext_.Reset();
+  ApplyUserDictionary();
 }
 
 STDMETHODIMP TextService::OnCompositionTerminated(TfEditCookie, ITfComposition*) {
   // The app ended the composition (e.g. focus moved); its text stays in the document.
+  LearnFromCommit(composer_.size());
   ResetState();
   return S_OK;
 }

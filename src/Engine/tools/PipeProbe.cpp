@@ -2,6 +2,9 @@
 // status, then ranks the candidates given on the command line.
 //
 //   LLaIME.PipeProbe [--context 上文] 候選一 候選二 ...
+//   LLaIME.PipeProbe --add ㄅㄛˊ-ㄩㄣˊ 柏昀       add a user phrase
+//   LLaIME.PipeProbe --pick ㄧˋ-ㄧˋ 異議 [前詞]   learn a pick, as a commit would
+//   LLaIME.PipeProbe --dict                       print the user dictionary
 #include <windows.h>
 
 #include <chrono>
@@ -10,6 +13,7 @@
 #include <vector>
 
 #include "llaime/Protocol.h"
+#include "llaime/UserDictionary.h"
 
 namespace proto = llaime::protocol;
 
@@ -25,7 +29,7 @@ std::string Utf8(const std::wstring& s) {
 }
 
 bool Transact(HANDLE pipe, const std::vector<uint8_t>& request, std::vector<uint8_t>* reply) {
-  reply->assign(64 * 1024, 0);
+  reply->assign(4 * 1024 * 1024, 0);
   DWORD read = 0;
   if (!TransactNamedPipe(pipe, const_cast<uint8_t*>(request.data()),
                          static_cast<DWORD>(request.size()), reply->data(),
@@ -36,16 +40,54 @@ bool Transact(HANDLE pipe, const std::vector<uint8_t>& request, std::vector<uint
   return true;
 }
 
+proto::Reading WireReading(const std::wstring& text) {
+  proto::Reading out;
+  if (auto syllables = llaime::ParseReading(text)) {
+    for (auto s : *syllables) out.push_back(s.bits());
+  }
+  return out;
+}
+
+std::wstring ReadingText(const proto::Reading& reading) {
+  std::vector<llaime::Syllable> syllables;
+  for (uint16_t b : reading) syllables.push_back(llaime::Syllable(b));
+  return llaime::FormatReading(syllables);
+}
+
+void PrintAck(const std::vector<uint8_t>& reply) {
+  proto::Reader in(reply.data(), reply.size());
+  proto::Ack ack;
+  if (in.Header() == proto::MessageType::Ack && proto::Decode(in, &ack)) {
+    printf("ack: ok %d, user dictionary version %u\n", ack.ok, ack.userVersion);
+  }
+}
+
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
   SetConsoleOutputCP(CP_UTF8);
   proto::RankRequest request;
   request.requestId = 1;
+  std::vector<std::vector<uint8_t>> commands;
+  bool dict = false;
   for (int i = 1; i < argc; ++i) {
     std::wstring arg = argv[i];
     if (arg == L"--context" && i + 1 < argc) {
       request.context = argv[++i];
+    } else if (arg == L"--add" && i + 2 < argc) {
+      proto::PhraseRequest add;
+      add.reading = WireReading(argv[i + 1]);
+      add.text = argv[i + 2];
+      commands.push_back(proto::Encode(add));
+      i += 2;
+    } else if (arg == L"--pick" && i + 2 < argc) {
+      proto::LearnRequest learn;
+      std::wstring prev = i + 3 < argc && argv[i + 3][0] != L'-' ? argv[i + 3] : L"";
+      learn.selections.push_back({WireReading(argv[i + 1]), argv[i + 2], prev});
+      commands.push_back(proto::Encode(learn));
+      i += prev.empty() ? 2 : 3;
+    } else if (arg == L"--dict") {
+      dict = true;
     } else {
       request.candidates.push_back(arg);
     }
@@ -69,6 +111,25 @@ int wmain(int argc, wchar_t** argv) {
     if (in.Header() == proto::MessageType::StatusResponse && proto::Decode(in, &status)) {
       printf("engine: %s on %s (loaded: %s)\n", Utf8(status.model).c_str(),
              Utf8(status.device).c_str(), status.modelLoaded ? "yes" : "no");
+    }
+  }
+  for (const auto& command : commands) {
+    if (Transact(pipe, command, &reply)) PrintAck(reply);
+  }
+  if (dict && Transact(pipe, proto::Encode(proto::UserDictRequest{}), &reply)) {
+    proto::Reader in(reply.data(), reply.size());
+    proto::UserDictResponse r;
+    if (in.Header() == proto::MessageType::UserDictResponse && proto::Decode(in, &r)) {
+      printf("user dictionary version %u, learning %s\n", r.version,
+             r.learningEnabled ? "on" : "paused");
+      for (const auto& p : r.phrases) {
+        printf("  phrase  %s %s (%s)\n", Utf8(ReadingText(p.reading)).c_str(),
+               Utf8(p.text).c_str(), p.kind ? "learned" : "manual");
+      }
+      for (const auto& s : r.selections) {
+        printf("  pick    %s %s after '%s' weight %.2f\n", Utf8(ReadingText(s.reading)).c_str(),
+               Utf8(s.text).c_str(), Utf8(s.prev).c_str(), s.weight);
+      }
     }
   }
   if (request.candidates.size() >= 2) {

@@ -121,6 +121,8 @@ bool TextService::InitLangBar() {
       [this] { return privateMode_; },
       [this] { ToggleChineseFromUi(); },
       [this] { SetFullShape(!fullShape_); },
+      [this] { return !learningEnabled_; },
+      [this] { SetLearningEnabled(!learningEnabled_); },
   });
   if (FAILED(mgr->AddItem(langBarButton_))) {
     langBarButton_->Release();

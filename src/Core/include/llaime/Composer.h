@@ -5,6 +5,7 @@
 
 #include "llaime/Lexicon.h"
 #include "llaime/Syllable.h"
+#include "llaime/UserDictionary.h"
 
 namespace llaime {
 
@@ -42,6 +43,13 @@ class Composer {
  public:
   explicit Composer(const Lexicon* lexicon) : lexicon_(lexicon) {}
 
+  // The user's phrases and picks, merged into every lookup (may be null). Must outlive its use
+  // here; replacing it re-converts the buffer.
+  void SetUserDictionary(const UserDictionary* user) {
+    user_ = user;
+    Invalidate();
+  }
+
   size_t size() const { return elements_.size(); }
   bool empty() const { return elements_.empty(); }
   size_t cursor() const { return cursor_; }
@@ -78,6 +86,12 @@ class Composer {
 
   // Reading of the syllables in [start, start+length), for display and learning.
   std::vector<Syllable> Syllables(size_t start, size_t length) const;
+  // Whether [start, start+length) holds only syllables (no punctuation or other literals).
+  bool IsReadingSpan(size_t start, size_t length) const {
+    return start + length <= elements_.size() && !SpanHasLiteral(start, length);
+  }
+  // Lexicon entries merged with the user dictionary's.
+  bool Lookup(std::span<const Syllable> seq, std::vector<LexEntry>& out) const;
 
  private:
   struct Element {
@@ -104,6 +118,7 @@ class Composer {
   }
 
   const Lexicon* lexicon_;
+  const UserDictionary* user_ = nullptr;
   std::vector<Element> elements_;
   std::vector<Pin> pins_;
   size_t cursor_ = 0;

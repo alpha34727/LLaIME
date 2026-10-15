@@ -13,7 +13,7 @@
 
 namespace llaime::protocol {
 
-inline constexpr uint32_t kVersion = 1;
+inline constexpr uint32_t kVersion = 2;
 
 // String SID of the current process's user, used to name per-user objects.
 inline std::wstring CurrentUserSid() {
@@ -44,7 +44,16 @@ enum class MessageType : uint32_t {
   RankResponse = 2,
   StatusRequest = 3,  // -> model / device information
   StatusResponse = 4,
+  UserDictRequest = 5,  // -> the user's phrases and picks, if changed since `knownVersion`
+  UserDictResponse = 6,
+  LearnRequest = 7,        // what a commit taught -> Ack
+  PhraseRequest = 8,       // add / remove a user phrase -> Ack
+  SetLearningRequest = 9,  // pause / resume learning -> Ack
+  Ack = 10,
 };
+
+// Syllables (llaime::Syllable bits) of a reading.
+using Reading = std::vector<uint16_t>;
 
 struct RankRequest {
   uint32_t requestId = 0;
@@ -57,6 +66,64 @@ struct RankResponse {
   uint32_t requestId = 0;
   bool ok = false;
   std::vector<double> scores;  // natural-log probability per candidate
+  uint32_t userVersion = 0;    // current user dictionary version (see UserDictResponse)
+};
+
+struct UserDictRequest {
+  uint32_t knownVersion = 0;  // 0: none yet
+};
+
+// The whole user dictionary (when `changed`), as built from user.db. `version` changes with
+// every edit, by the TIPs or by the settings app.
+struct UserDictResponse {
+  struct Phrase {
+    Reading reading;
+    std::wstring text;
+    uint32_t kind = 0;  // 0 manual, 1 learned
+  };
+  struct Selection {
+    Reading reading;
+    std::wstring text;
+    std::wstring prev;
+    double weight = 0;  // picks, decayed to now
+  };
+  uint32_t version = 0;
+  bool changed = false;
+  bool learningEnabled = true;
+  std::vector<Phrase> phrases;
+  std::vector<Selection> selections;
+};
+
+struct LearnRequest {
+  struct Selection {
+    Reading reading;
+    std::wstring text;
+    std::wstring prev;
+  };
+  struct Phrase {
+    Reading reading;
+    std::wstring text;
+  };
+  std::vector<Selection> selections;
+  std::vector<Phrase> phrases;
+};
+
+struct PhraseRequest {
+  enum Op : uint32_t { Add = 1, Remove = 2 };
+  uint32_t op = Add;
+  Reading reading;
+  std::wstring text;
+};
+
+struct SetLearningRequest {
+  bool enabled = true;
+};
+
+struct Ack {
+  MessageType request = MessageType::Ack;  // the request this answers
+  bool ok = false;
+  uint32_t userVersion = 0;
+  std::wstring text;  // PhraseRequest: the phrase
 };
 
 struct StatusResponse {
@@ -76,6 +143,10 @@ class Writer {
   void Str(const std::wstring& s) {
     U32(static_cast<uint32_t>(s.size()));
     Raw(s.data(), s.size() * sizeof(wchar_t));
+  }
+  void Syllables(const Reading& r) {
+    U32(static_cast<uint32_t>(r.size()));
+    Raw(r.data(), r.size() * sizeof(uint16_t));
   }
   const std::vector<uint8_t>& bytes() const { return buf_; }
 
@@ -103,6 +174,16 @@ class Reader {
     if (!U32(&n) || n > (end_ - p_) / sizeof(wchar_t)) return false;
     s->resize(n);
     return Raw(s->data(), n * sizeof(wchar_t));
+  }
+  bool Syllables(Reading* r) {
+    uint32_t n = 0;
+    if (!U32(&n) || n > 64 || n > (end_ - p_) / sizeof(uint16_t)) return false;
+    r->resize(n);
+    return Raw(r->data(), n * sizeof(uint16_t));
+  }
+  // A count of items, each at least `minBytes` long, that fits in what is left.
+  bool Count(uint32_t* n, size_t minBytes) {
+    return U32(n) && *n <= static_cast<size_t>(end_ - p_) / minBytes;
   }
 
  private:
@@ -146,6 +227,7 @@ inline std::vector<uint8_t> Encode(const RankResponse& r) {
   w.U32(r.ok ? 1 : 0);
   w.U32(static_cast<uint32_t>(r.scores.size()));
   for (double s : r.scores) w.F64(s);
+  w.U32(r.userVersion);
   return w.bytes();
 }
 
@@ -157,7 +239,7 @@ inline bool Decode(Reader& in, RankResponse* r) {
   for (double& s : r->scores) {
     if (!in.F64(&s)) return false;
   }
-  return true;
+  return in.U32(&r->userVersion);
 }
 
 inline std::vector<uint8_t> EncodeStatusRequest() { return Writer(MessageType::StatusRequest).bytes(); }
@@ -177,4 +259,130 @@ inline bool Decode(Reader& in, StatusResponse* r) {
   return true;
 }
 
+inline std::vector<uint8_t> Encode(const UserDictRequest& r) {
+  Writer w(MessageType::UserDictRequest);
+  w.U32(r.knownVersion);
+  return w.bytes();
+}
+
+inline bool Decode(Reader& in, UserDictRequest* r) { return in.U32(&r->knownVersion); }
+
+inline std::vector<uint8_t> Encode(const UserDictResponse& r) {
+  Writer w(MessageType::UserDictResponse);
+  w.U32(r.version);
+  w.U32(r.changed ? 1 : 0);
+  w.U32(r.learningEnabled ? 1 : 0);
+  w.U32(static_cast<uint32_t>(r.phrases.size()));
+  for (const auto& p : r.phrases) {
+    w.Syllables(p.reading);
+    w.Str(p.text);
+    w.U32(p.kind);
+  }
+  w.U32(static_cast<uint32_t>(r.selections.size()));
+  for (const auto& s : r.selections) {
+    w.Syllables(s.reading);
+    w.Str(s.text);
+    w.Str(s.prev);
+    w.F64(s.weight);
+  }
+  return w.bytes();
+}
+
+inline bool Decode(Reader& in, UserDictResponse* r) {
+  uint32_t changed = 0, enabled = 0, count = 0;
+  if (!in.U32(&r->version) || !in.U32(&changed) || !in.U32(&enabled) || !in.Count(&count, 12)) {
+    return false;
+  }
+  r->changed = changed != 0;
+  r->learningEnabled = enabled != 0;
+  r->phrases.resize(count);
+  for (auto& p : r->phrases) {
+    if (!in.Syllables(&p.reading) || !in.Str(&p.text) || !in.U32(&p.kind)) return false;
+  }
+  if (!in.Count(&count, 20)) return false;
+  r->selections.resize(count);
+  for (auto& s : r->selections) {
+    if (!in.Syllables(&s.reading) || !in.Str(&s.text) || !in.Str(&s.prev) || !in.F64(&s.weight)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+inline std::vector<uint8_t> Encode(const LearnRequest& r) {
+  Writer w(MessageType::LearnRequest);
+  w.U32(static_cast<uint32_t>(r.selections.size()));
+  for (const auto& s : r.selections) {
+    w.Syllables(s.reading);
+    w.Str(s.text);
+    w.Str(s.prev);
+  }
+  w.U32(static_cast<uint32_t>(r.phrases.size()));
+  for (const auto& p : r.phrases) {
+    w.Syllables(p.reading);
+    w.Str(p.text);
+  }
+  return w.bytes();
+}
+
+inline bool Decode(Reader& in, LearnRequest* r) {
+  uint32_t count = 0;
+  if (!in.Count(&count, 12)) return false;
+  r->selections.resize(count);
+  for (auto& s : r->selections) {
+    if (!in.Syllables(&s.reading) || !in.Str(&s.text) || !in.Str(&s.prev)) return false;
+  }
+  if (!in.Count(&count, 8)) return false;
+  r->phrases.resize(count);
+  for (auto& p : r->phrases) {
+    if (!in.Syllables(&p.reading) || !in.Str(&p.text)) return false;
+  }
+  return true;
+}
+
+inline std::vector<uint8_t> Encode(const PhraseRequest& r) {
+  Writer w(MessageType::PhraseRequest);
+  w.U32(r.op);
+  w.Syllables(r.reading);
+  w.Str(r.text);
+  return w.bytes();
+}
+
+inline bool Decode(Reader& in, PhraseRequest* r) {
+  return in.U32(&r->op) && in.Syllables(&r->reading) && in.Str(&r->text);
+}
+
+inline std::vector<uint8_t> Encode(const SetLearningRequest& r) {
+  Writer w(MessageType::SetLearningRequest);
+  w.U32(r.enabled ? 1 : 0);
+  return w.bytes();
+}
+
+inline bool Decode(Reader& in, SetLearningRequest* r) {
+  uint32_t enabled = 0;
+  if (!in.U32(&enabled)) return false;
+  r->enabled = enabled != 0;
+  return true;
+}
+
+inline std::vector<uint8_t> Encode(const Ack& r) {
+  Writer w(MessageType::Ack);
+  w.U32(static_cast<uint32_t>(r.request));
+  w.U32(r.ok ? 1 : 0);
+  w.U32(r.userVersion);
+  w.Str(r.text);
+  return w.bytes();
+}
+
+inline bool Decode(Reader& in, Ack* r) {
+  uint32_t request = 0, ok = 0;
+  if (!in.U32(&request) || !in.U32(&ok) || !in.U32(&r->userVersion) || !in.Str(&r->text)) {
+    return false;
+  }
+  r->request = static_cast<MessageType>(request);
+  r->ok = ok != 0;
+  return true;
+}
+
 }  // namespace llaime::protocol
+

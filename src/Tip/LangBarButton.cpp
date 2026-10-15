@@ -12,7 +12,13 @@ namespace {
 
 constexpr DWORD kSinkCookie = 0x4c4c4149;  // 'LLAI'
 
-enum MenuId : UINT { kMenuChinese = 1, kMenuEnglish, kMenuHalfShape, kMenuFullShape };
+enum MenuId : UINT {
+  kMenuChinese = 1,
+  kMenuEnglish,
+  kMenuHalfShape,
+  kMenuFullShape,
+  kMenuPauseLearning,
+};
 
 }  // namespace
 
@@ -94,6 +100,8 @@ STDMETHODIMP LangBarButton::OnClick(TfLBIClick click, POINT, const RECT*) {
       {0, L"", false, true},
       {kMenuHalfShape, L"半形", !full},
       {kMenuFullShape, L"全形", full},
+      {0, L"", false, true},
+      {kMenuPauseLearning, L"暫停學習", callbacks_.isLearningPaused()},
   };
   OnMenuSelect(ShowPopupMenu(items));
   return S_OK;
@@ -109,6 +117,7 @@ STDMETHODIMP LangBarButton::OnMenuSelect(UINT id) {
     case kMenuEnglish: if (chinese) callbacks_.toggleChinese(); break;
     case kMenuHalfShape: if (full) callbacks_.toggleFullShape(); break;
     case kMenuFullShape: if (!full) callbacks_.toggleFullShape(); break;
+    case kMenuPauseLearning: callbacks_.toggleLearning(); break;
     default: break;
   }
   return S_OK;

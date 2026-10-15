@@ -9,6 +9,7 @@
 #include <cmath>
 
 #include "EditSession.h"
+#include "llaime/Learning.h"
 #include "llaime/TaiwanUsage.h"
 #include "EngineClient.h"
 #include "TextService.h"
@@ -22,7 +23,8 @@ namespace {
 constexpr size_t kCandidates = 16;  // the engine scores at most this many per request
 // Combined score = LM log-prob + kLexiconWeight * lexicon log-prob (natural log)
 // - kVariantPenalty per non-Taiwan-standard spelling (身份, 計劃, ...), which general models
-// prefer. Tuned with LLaIME.Eval on tests/eval (Common Voice dev and taiwan_usage).
+// prefer, + the user's picks among its words (LearnedBonus). Tuned with LLaIME.Eval on
+// tests/eval (Common Voice dev and taiwan_usage).
 constexpr double kLexiconWeight = 0.75;
 constexpr double kVariantPenalty = 4.0;
 // Open candidates at or above this probability are listed by probability.
@@ -30,9 +32,11 @@ constexpr double kRankedProbability = 0.01;
 // Characters before the composition given to the model as context.
 constexpr LONG kContextChars = 32;
 
-double CombinedScore(double lm, const Sentence& sentence) {
+double CombinedScore(double lm, const Sentence& sentence, const Composer& composer,
+                     const UserDictionary* user) {
   return lm + kLexiconWeight * sentence.score * std::log(10.0) -
-         kVariantPenalty * CountNonTaiwanVariants(sentence.Text());
+         kVariantPenalty * CountNonTaiwanVariants(sentence.Text()) +
+         (user ? LearnedBonus(*user, composer, sentence.nodes) : 0.0);
 }
 
 }  // namespace
@@ -114,7 +118,8 @@ void TextService::OnCandidateProbabilities(const protocol::RankResponse& respons
   std::vector<double> scores(candidateSentences_.size());
   double best = -1e300;
   for (size_t i = 0; i < scores.size(); ++i) {
-    scores[i] = CombinedScore(response.scores[i], candidateSentences_[i]);
+    scores[i] =
+        CombinedScore(response.scores[i], candidateSentences_[i], composer_, userDict_.get());
     best = std::max(best, scores[i]);
   }
   double sum = 0;
@@ -153,6 +158,8 @@ void TextService::OnCandidateProbabilities(const protocol::RankResponse& respons
 }
 
 void TextService::OnRankResponse(const protocol::RankResponse& response) {
+  CheckUserVersion(response.userVersion);
+  if (!response.ok) return;  // the engine is still loading its model
   if (response.requestId != 0 && response.requestId == candidateRequestId_) {
     if (response.ok) OnCandidateProbabilities(response);
     return;
@@ -164,7 +171,8 @@ void TextService::OnRankResponse(const protocol::RankResponse& response) {
   size_t best = 0;
   double bestScore = -1e300;
   for (size_t i = 0; i < rankedSentences_.size(); ++i) {
-    const double score = CombinedScore(response.scores[i], rankedSentences_[i]);
+    const double score =
+        CombinedScore(response.scores[i], rankedSentences_[i], composer_, userDict_.get());
     if (score > bestScore) {
       bestScore = score;
       best = i;

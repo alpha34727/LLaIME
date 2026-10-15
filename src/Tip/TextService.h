@@ -3,7 +3,9 @@
 #include <wrl/client.h>
 
 #include <memory>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "llaime/BopomofoReading.h"
@@ -16,6 +18,7 @@ class CandidateWindow;
 class LangBarButton;
 class ThemeWatcher;
 class EngineClient;
+class NoticeWindow;
 
 // What a key press does, decided in OnTestKeyDown and carried out in OnKeyDown.
 struct KeyAction {
@@ -43,6 +46,9 @@ struct KeyAction {
     CandidateToggleExpanded,
     CandidateAccept,
     CandidateClose,
+    MarkLeft,      // Shift+Left/Right: mark syllables for Ctrl+=
+    MarkRight,
+    AddPhrase,     // Ctrl+=: add the marked range (or the whole composition) as a phrase
     ToggleShape,   // Shift+Space: half/full width
     DirectInsert,  // insert `text` straight into the document (nothing is being composed)
   };
@@ -132,6 +138,21 @@ class TextService final : public ITfTextInputProcessorEx,
   void OnRankResponse(const protocol::RankResponse& response);
   void OnCandidateProbabilities(const protocol::RankResponse& response);
 
+  // User dictionary and learning (UserDict.cpp)
+  void RequestUserDictionary();
+  // Fetches the user dictionary if the engine's `version` is newer than the one held.
+  void CheckUserVersion(uint32_t version);
+  void OnUserDictResponse(const protocol::UserDictResponse& response);
+  void OnAck(const protocol::Ack& ack);
+  // Takes the process's newest snapshot, unless composing.
+  void ApplyUserDictionary();
+  // Sends what committing elements [0, upTo) of the buffer taught.
+  void LearnFromCommit(size_t upTo);
+  void SetLearningEnabled(bool enabled);
+  std::pair<size_t, size_t> MarkedRange() const;  // [start, end) elements; empty if none
+  void MoveMark(int delta);
+  void AddPhraseFromComposition(ITfContext* context, TfEditCookie ec);
+
   // Key handling (KeyEventSink.cpp)
   KeyAction ClassifyKey(WPARAM vk) const;
   HRESULT ExecuteKeyAction(ITfContext* context, const KeyAction& action);
@@ -167,6 +188,7 @@ class TextService final : public ITfTextInputProcessorEx,
   DWORD openCloseSinkCookie_ = TF_INVALID_COOKIE;
   TfGuidAtom inputAttributeAtom_ = TF_INVALID_GUIDATOM;
   TfGuidAtom errorAttributeAtom_ = TF_INVALID_GUIDATOM;
+  TfGuidAtom markAttributeAtom_ = TF_INVALID_GUIDATOM;
 
   bool chineseMode_ = true;
   bool fullShape_ = false;
@@ -193,6 +215,13 @@ class TextService final : public ITfTextInputProcessorEx,
   std::vector<Sentence> candidateSentences_;
   std::vector<int> candidateSentenceIndex_;
   std::wstring contextText_;  // document text before the composition
+
+  std::shared_ptr<const UserDictionary> userDict_;
+  ULONGLONG userDictRequestTick_ = 0;  // a request is on its way since then (0: none)
+  bool learningEnabled_ = true;
+  std::optional<size_t> markAnchor_;  // Shift+arrow marking: the fixed end
+  std::unique_ptr<NoticeWindow> notice_;
+  RECT noticeAnchor_{};
 
   Microsoft::WRL::ComPtr<ITfComposition> composition_;
   Microsoft::WRL::ComPtr<ITfContext> compositionContext_;

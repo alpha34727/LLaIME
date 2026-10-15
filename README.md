@@ -77,3 +77,18 @@ uv run python prepare_lexicon.py   # 下載資料來源並產生 data\build\lexi
 | `laya` | CPU 模式：微調過的 Laya 排序器（ONNX Runtime，`[laya] path` 指定 `models\laya-zh`），純 CPU 每次約 50 ms |
 
 Laya 模型由 `tools/prune_laya_vocab.py` 與 `tools/export_laya_tokenizer.py` 從微調後的檢查點產生（見 `tests/eval/RESULTS.md`）。
+
+## 使用者詞庫與學習
+
+存放在 `%LOCALAPPDATA%\LLaIME\user.db`（SQLite），由選字引擎讀寫，各應用程式裡的輸入法透過 pipe 取得最新內容。
+
+| 操作 | 說明 |
+|---|---|
+| 從候選清單改選 | 送出時記下「這個讀音選了這個詞」（也記前一個詞）。下次同讀音優先出現，整句排序時加分；權重每 30 天減半，改選別的詞時舊的減半 |
+| 一個字一個字選出同一串字 | 連續兩次以上，自動成為學習詞 |
+| `Shift+←／→` 選取，再按 `Ctrl+=` | 把選取的字（1–9 字）加入使用者詞庫；沒有選取時加入整段組字 |
+| 工作列「中／英」按鈕右鍵 →「暫停學習」 | 暫停自動學習（手動加詞仍可用） |
+
+密碼欄位與無痕視窗（私密模式）完全不學習。
+
+學習效果可用 `LLaIME.LearnSim` 模擬（使用者遇到錯字就從候選改選，再測同一批句子與另一批句子），結果見 `tests/eval/RESULTS.md`。

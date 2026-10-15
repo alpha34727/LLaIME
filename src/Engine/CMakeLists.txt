@@ -1,3 +1,23 @@
+# The user dictionary store (SQLite amalgamation, public domain) does not need the model
+# runtimes, so it and its tests build first.
+include(FetchContent)
+FetchContent_Declare(
+  sqlite
+  URL https://sqlite.org/2026/sqlite-amalgamation-3540000.zip
+  URL_HASH SHA3_256=7b670a62fdfbd672b75fef004cb703c8a3e87d3a5cc7d675b4a08337004a2d93
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+FetchContent_MakeAvailable(sqlite)
+add_library(sqlite3 STATIC ${sqlite_SOURCE_DIR}/sqlite3.c)
+target_include_directories(sqlite3 PUBLIC ${sqlite_SOURCE_DIR})
+target_compile_definitions(sqlite3 PRIVATE SQLITE_ENABLE_MATH_FUNCTIONS SQLITE_DQS=0
+  SQLITE_DEFAULT_FOREIGN_KEYS=1 SQLITE_OMIT_LOAD_EXTENSION SQLITE_THREADSAFE=1)
+target_compile_options(sqlite3 PRIVATE /W0)
+
+add_library(LLaIME.UserStore STATIC UserStore.cpp)
+target_include_directories(LLaIME.UserStore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(LLaIME.UserStore PUBLIC LLaIME.Core LLaIME.Common PRIVATE sqlite3)
+
 # llama.cpp is built separately (scripts/build-llama.ps1) with dynamically loaded backends.
 set(LLAIME_LLAMA_DIR "${CMAKE_SOURCE_DIR}/build/llama/Release/install" CACHE PATH
     "llama.cpp install prefix")
@@ -43,11 +63,19 @@ add_custom_command(TARGET LLaIME.Eval POST_BUILD
   COMMAND_EXPAND_LISTS)
 
 add_executable(LLaIME.Engine EngineMain.cpp)
-target_link_libraries(LLaIME.Engine PRIVATE LLaIME.Llm LLaIME.Laya LLaIME.Common)
+target_link_libraries(LLaIME.Engine PRIVATE LLaIME.Llm LLaIME.Laya LLaIME.UserStore LLaIME.Common)
 add_custom_command(TARGET LLaIME.Engine POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different ${LLAIME_LLAMA_DLLS} ${LLAIME_ORT_DLLS}
           $<TARGET_FILE_DIR:LLaIME.Engine>
   COMMAND_EXPAND_LISTS)
 
 add_executable(LLaIME.PipeProbe tools/PipeProbe.cpp)
-target_link_libraries(LLaIME.PipeProbe PRIVATE LLaIME.Common)
+target_link_libraries(LLaIME.PipeProbe PRIVATE LLaIME.Core LLaIME.Common)
+
+# Simulates a user correcting conversions, to measure what learning gains and costs.
+add_executable(LLaIME.LearnSim tools/LearnSim.cpp)
+target_link_libraries(LLaIME.LearnSim PRIVATE LLaIME.Llm LLaIME.UserStore LLaIME.Core)
+add_custom_command(TARGET LLaIME.LearnSim POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different ${LLAIME_LLAMA_DLLS}
+          $<TARGET_FILE_DIR:LLaIME.LearnSim>
+  COMMAND_EXPAND_LISTS)
