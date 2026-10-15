@@ -200,6 +200,9 @@ class Engine {
       case proto::MessageType::StatusRequest: {
         proto::StatusResponse status;
         status.modelLoaded = IsLoaded();
+        status.rankRequests = rankRequests_;
+        status.privateRankRequests = privateRankRequests_;
+        status.contextRankRequests = contextRankRequests_;
         if (status.modelLoaded) {
           status.model = modelName_;
           status.device = deviceName_;
@@ -252,6 +255,9 @@ class Engine {
     response.userVersion = store_.Version();
     if (!proto::Decode(in, &request)) return proto::Encode(response);
     response.requestId = request.requestId;
+    ++rankRequests_;
+    if (request.privateMode) ++privateRankRequests_;
+    if (!request.context.empty()) ++contextRankRequests_;
     if (!IsLoaded()) return proto::Encode(response);
 
     std::wstring key = request.context;
@@ -278,6 +284,7 @@ class Engine {
   LayaScorer laya_;
   UserStore store_;
   std::atomic<bool> ready_ = false;
+  std::atomic<uint32_t> rankRequests_ = 0, privateRankRequests_ = 0, contextRankRequests_ = 0;
   std::mutex mutex_;  // one llama context: requests are scored one at a time
   ScoreCache cache_;
   std::wstring modelName_, deviceName_;

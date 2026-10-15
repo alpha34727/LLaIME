@@ -111,6 +111,8 @@ int wmain(int argc, wchar_t** argv) {
     if (in.Header() == proto::MessageType::StatusResponse && proto::Decode(in, &status)) {
       printf("engine: %s on %s (loaded: %s)\n", Utf8(status.model).c_str(),
              Utf8(status.device).c_str(), status.modelLoaded ? "yes" : "no");
+      printf("rank requests: %u (private %u, with context %u)\n", status.rankRequests,
+             status.privateRankRequests, status.contextRankRequests);
     }
   }
   for (const auto& command : commands) {

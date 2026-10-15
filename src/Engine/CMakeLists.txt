@@ -79,3 +79,7 @@ add_custom_command(TARGET LLaIME.LearnSim POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different ${LLAIME_LLAMA_DLLS}
           $<TARGET_FILE_DIR:LLaIME.LearnSim>
   COMMAND_EXPAND_LISTS)
+
+# Types through the installed IME into normal and private fields and checks what is learned.
+add_executable(LLaIME.PrivacyTest tools/PrivacyTest.cpp)
+target_link_libraries(LLaIME.PrivacyTest PRIVATE LLaIME.UserStore LLaIME.Common)

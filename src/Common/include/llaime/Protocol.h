@@ -130,6 +130,11 @@ struct StatusResponse {
   bool modelLoaded = false;
   std::wstring model;
   std::wstring device;
+  // Counts since the engine started (never any text), for tests of privacy mode: rank
+  // requests, those flagged private, and those that carried context text.
+  uint32_t rankRequests = 0;
+  uint32_t privateRankRequests = 0;
+  uint32_t contextRankRequests = 0;
 };
 
 class Writer {
@@ -249,12 +254,19 @@ inline std::vector<uint8_t> Encode(const StatusResponse& r) {
   w.U32(r.modelLoaded ? 1 : 0);
   w.Str(r.model);
   w.Str(r.device);
+  w.U32(r.rankRequests);
+  w.U32(r.privateRankRequests);
+  w.U32(r.contextRankRequests);
   return w.bytes();
 }
 
 inline bool Decode(Reader& in, StatusResponse* r) {
   uint32_t loaded = 0;
-  if (!in.U32(&loaded) || !in.Str(&r->model) || !in.Str(&r->device)) return false;
+  if (!in.U32(&loaded) || !in.Str(&r->model) || !in.Str(&r->device) ||
+      !in.U32(&r->rankRequests) || !in.U32(&r->privateRankRequests) ||
+      !in.U32(&r->contextRankRequests)) {
+    return false;
+  }
   r->modelLoaded = loaded != 0;
   return true;
 }
