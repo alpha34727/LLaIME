@@ -2,6 +2,8 @@
 #include <cstdint>
 #include <mutex>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "llaime/Protocol.h"
 
@@ -47,6 +49,35 @@ class UserStore {
   bool Learn(const protocol::LearnRequest& request, int64_t now = 0);
   bool AddPhrase(const protocol::Reading& reading, const std::wstring& text, int64_t now = 0);
   bool RemovePhrase(const protocol::Reading& reading, const std::wstring& text);
+
+  // For the settings app's user dictionary page.
+  struct PhraseRow {
+    protocol::Reading reading;
+    std::wstring text;
+    uint32_t kind = 0;  // 0 manual, 1 learned
+    int64_t created = 0;
+  };
+  struct SelectionRow {
+    protocol::Reading reading;
+    std::wstring text, prev;
+    double weight = 0;  // decayed to now
+    int64_t updated = 0;
+  };
+  std::vector<PhraseRow> ListPhrases();
+  // Heaviest first.
+  std::vector<SelectionRow> ListSelections(int64_t now = 0);
+  // Replaces a phrase (kept manual); false if the new one is invalid.
+  bool UpdatePhrase(const protocol::Reading& reading, const std::wstring& text,
+                    const protocol::Reading& newReading, const std::wstring& newText);
+  // A learned phrase kept as if added by hand.
+  bool MakeManual(const protocol::Reading& reading, const std::wstring& text);
+  // Adds many manual phrases in one transaction; returns how many were new.
+  size_t AddPhrases(const std::vector<std::pair<protocol::Reading, std::wstring>>& phrases,
+                    int64_t now = 0);
+  bool RemoveSelection(const protocol::Reading& reading, const std::wstring& text,
+                       const std::wstring& prev);
+  // Forgets everything learned: picks, runs of picks and learned phrases (manual ones stay).
+  bool ClearLearning();
 
  private:
   bool Exec(const char* sql);

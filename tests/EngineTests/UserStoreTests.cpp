@@ -138,3 +138,56 @@ TEST_F(UserStoreTest, EditsFromAnotherProcessChangeTheVersion) {
   EXPECT_NE(store_->Version(), v0);
   EXPECT_EQ(store_->Snapshot(0).phrases.size(), 1u);
 }
+
+TEST_F(UserStoreTest, ManagesPhrasesForTheSettingsApp) {
+  ASSERT_TRUE(store_->AddPhrase(R(L"ㄌㄧˇ-ㄒㄧㄠˇ-ㄇㄧㄥˊ"), L"李小明", kT0));
+  const uint32_t before = store_->Version();
+  ASSERT_TRUE(store_->UpdatePhrase(R(L"ㄌㄧˇ-ㄒㄧㄠˇ-ㄇㄧㄥˊ"), L"李小明",
+                                   R(L"ㄌㄧˇ-ㄒㄧㄠˇ-ㄇㄧㄥˊ"), L"李曉明"));
+  EXPECT_NE(store_->Version(), before);
+  auto rows = store_->ListPhrases();
+  ASSERT_EQ(rows.size(), 1u);
+  EXPECT_EQ(rows[0].text, L"李曉明");
+  EXPECT_EQ(rows[0].created, kT0);  // editing keeps the date it was added
+  EXPECT_FALSE(store_->UpdatePhrase(R(L"ㄌㄧˇ-ㄒㄧㄠˇ-ㄇㄧㄥˊ"), L"李曉明",
+                                    R(L"ㄌㄧˇ-ㄒㄧㄠˇ-ㄇㄧㄥˊ"), L"bad\ttext"));
+
+  std::vector<std::pair<proto::Reading, std::wstring>> batch = {
+      {R(L"ㄨㄟˊ-ㄐㄧ"), L"維基"}, {R(L"ㄌㄧˇ-ㄒㄧㄠˇ-ㄇㄧㄥˊ"), L"李曉明"}, {{}, L"壞"}};
+  EXPECT_EQ(store_->AddPhrases(batch, kT0), 2u);  // the invalid reading is skipped
+  EXPECT_EQ(store_->ListPhrases().size(), 2u);
+}
+
+TEST_F(UserStoreTest, ClearLearningKeepsManualPhrases) {
+  ASSERT_TRUE(store_->AddPhrase(R(L"ㄨㄟˊ-ㄐㄧ"), L"維基", kT0));
+  Pick(L"ㄕˋ-ㄧㄢˋ", L"實驗", L"做", kT0);
+  proto::LearnRequest runs;
+  runs.phrases.push_back({R(L"ㄐㄧ-ㄉㄢˋ"), L"機蛋"});
+  ASSERT_TRUE(store_->Learn(runs, kT0));
+  ASSERT_TRUE(store_->Learn(runs, kT0));  // promoted to a learned phrase
+  ASSERT_EQ(store_->ListPhrases().size(), 2u);
+  auto picks = store_->ListSelections(kT0);
+  ASSERT_EQ(picks.size(), 2u);  // overall and after 做
+  EXPECT_DOUBLE_EQ(picks[0].weight, 1.0);
+
+  ASSERT_TRUE(store_->RemoveSelection(R(L"ㄕˋ-ㄧㄢˋ"), L"實驗", L"做"));
+  EXPECT_EQ(store_->ListSelections(kT0).size(), 1u);
+
+  ASSERT_TRUE(store_->ClearLearning());
+  EXPECT_TRUE(store_->ListSelections(kT0).empty());
+  auto phrases = store_->ListPhrases();
+  ASSERT_EQ(phrases.size(), 1u);
+  EXPECT_EQ(phrases[0].text, L"維基");
+}
+
+TEST_F(UserStoreTest, LearnedPhraseMadeManual) {
+  proto::LearnRequest runs;
+  runs.phrases.push_back({R(L"ㄐㄧ-ㄉㄢˋ"), L"機蛋"});
+  ASSERT_TRUE(store_->Learn(runs, kT0));
+  ASSERT_TRUE(store_->Learn(runs, kT0));
+  ASSERT_EQ(store_->ListPhrases().at(0).kind, 1u);
+  ASSERT_TRUE(store_->MakeManual(R(L"ㄐㄧ-ㄉㄢˋ"), L"機蛋"));
+  EXPECT_EQ(store_->ListPhrases().at(0).kind, 0u);
+  ASSERT_TRUE(store_->ClearLearning());
+  EXPECT_EQ(store_->ListPhrases().size(), 1u);
+}

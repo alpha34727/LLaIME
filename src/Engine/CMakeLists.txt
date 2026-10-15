@@ -83,3 +83,6 @@ add_custom_command(TARGET LLaIME.LearnSim POST_BUILD
 # Types through the installed IME into normal and private fields and checks what is learned.
 add_executable(LLaIME.PrivacyTest tools/PrivacyTest.cpp)
 target_link_libraries(LLaIME.PrivacyTest PRIVATE LLaIME.UserStore LLaIME.Common)
+# End-to-end test of turning a lexicon layer off in the installed IME.
+add_executable(LLaIME.LexiconTest tools/LexiconTest.cpp)
+target_link_libraries(LLaIME.LexiconTest PRIVATE LLaIME.Core)

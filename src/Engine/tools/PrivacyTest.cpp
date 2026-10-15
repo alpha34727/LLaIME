@@ -16,8 +16,10 @@
 #include <windows.h>
 #include <msctf.h>
 #include <inputscope.h>
-#include <tlhelp32.h>
 #include <wrl/client.h>
+
+#include <fcntl.h>
+#include <io.h>
 
 #include <cstdio>
 #include <filesystem>
@@ -26,48 +28,18 @@
 #include <string>
 #include <vector>
 
+#include "TestDesktop.h"
 #include "UserStore.h"
 #include "llaime/Protocol.h"
 
 using Microsoft::WRL::ComPtr;
 namespace fs = std::filesystem;
 namespace proto = llaime::protocol;
+using namespace llaime::testing;
 
 namespace {
 
-// src/Tip/Globals.h
-constexpr CLSID kClsidTextService = {
-    0x5b72f657, 0xf087, 0x4472, {0xa8, 0x27, 0x7f, 0xd8, 0xeb, 0x60, 0x8d, 0xe6}};
-constexpr GUID kProfileBopomofo = {
-    0x671f61eb, 0xe460, 0x42b0, {0x8b, 0x3a, 0xc9, 0x0c, 0xb1, 0x48, 0x87, 0x16}};
-constexpr LANGID kLangIdZhTw = MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_TRADITIONAL);
 constexpr wchar_t kPageTitle[] = L"LLaIME privacy test";
-
-// The installed root, from the TIP's COM registration: <root>\x64\LLaIME.Tip.dll.
-fs::path InstallRoot() {
-  wchar_t value[MAX_PATH] = {};
-  DWORD size = sizeof(value);
-  if (RegGetValueW(HKEY_CLASSES_ROOT,
-                   L"CLSID\\{5B72F657-F087-4472-A827-7FD8EB608DE6}\\InprocServer32", nullptr,
-                   RRF_RT_REG_SZ, nullptr, value, &size) != ERROR_SUCCESS) {
-    return {};
-  }
-  return fs::path(value).parent_path().parent_path();
-}
-
-void StopEngines() {
-  HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-  PROCESSENTRY32W pe{sizeof(pe)};
-  for (BOOL ok = Process32FirstW(snap, &pe); ok; ok = Process32NextW(snap, &pe)) {
-    if (_wcsicmp(pe.szExeFile, L"LLaIME.Engine.exe") != 0) continue;
-    if (HANDLE p = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pe.th32ProcessID)) {
-      TerminateProcess(p, 0);
-      WaitForSingleObject(p, 5000);
-      CloseHandle(p);
-    }
-  }
-  CloseHandle(snap);
-}
 
 bool Transact(const std::vector<uint8_t>& request, std::vector<uint8_t>* reply) {
   const std::wstring name = proto::PipeName(proto::CurrentUserSid());
@@ -91,38 +63,6 @@ bool Status(proto::StatusResponse* status) {
   if (!Transact(proto::EncodeStatusRequest(), &reply)) return false;
   proto::Reader in(reply.data(), reply.size());
   return in.Header() == proto::MessageType::StatusResponse && proto::Decode(in, status);
-}
-
-void Key(WORD vk, bool ctrl = false) {
-  std::vector<INPUT> inputs;
-  auto add = [&](WORD k, bool up) {
-    INPUT in{};
-    in.type = INPUT_KEYBOARD;
-    in.ki.wVk = k;
-    in.ki.dwFlags = up ? KEYEVENTF_KEYUP : 0;
-    if (k == VK_DOWN || k == VK_UP || k == VK_LEFT || k == VK_RIGHT) {
-      in.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
-    }
-    inputs.push_back(in);
-  };
-  if (ctrl) add(VK_CONTROL, false);
-  add(vk, false);
-  add(vk, true);
-  if (ctrl) add(VK_CONTROL, true);
-  SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
-  Sleep(120);
-}
-
-void Pump(DWORD ms) {
-  const ULONGLONG end = GetTickCount64() + ms;
-  while (GetTickCount64() < end) {
-    MSG msg;
-    while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
-      TranslateMessage(&msg);
-      DispatchMessageW(&msg);
-    }
-    Sleep(20);
-  }
 }
 
 // ㄧˋㄧˋ, open the candidates, pick the second, commit. Every key goes only to `target`: if
@@ -372,6 +312,9 @@ std::vector<Result> RunBrowsers(Probe& probe, const fs::path& pages, const std::
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
+  // Wide output as UTF-8 (the CRT would turn Chinese into ?).
+  _setmode(_fileno(stdout), _O_U8TEXT);
+  _setmode(_fileno(stderr), _O_U8TEXT);
   SetConsoleOutputCP(CP_UTF8);
   bool browsers = false, win32 = true;
   std::wstring only;  // --only <text>: just the browser cases whose name contains it

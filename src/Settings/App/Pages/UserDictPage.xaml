@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="LLaIME.Settings.Pages.UserDictPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:LLaIME.Settings"
+    xmlns:tk="using:CommunityToolkit.WinUI.Controls">
+  <Page.Resources>
+    <Style x:Key="ColumnHeaderButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="4,2" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+    </Style>
+  </Page.Resources>
+
+  <Grid MaxWidth="1000" Padding="56,0,56,24" RowSpacing="8">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
+    <TextBlock Text="使用者詞庫" Style="{StaticResource PageTitleTextBlockStyle}" />
+    <SelectorBar x:Name="Tabs" Grid.Row="1" SelectionChanged="Tabs_SelectionChanged">
+      <SelectorBarItem x:Name="PhrasesTab" Text="我的詞彙" IsSelected="True" />
+      <SelectorBarItem x:Name="LearningTab" Text="學習紀錄" />
+    </SelectorBar>
+
+    <!-- My phrases -->
+    <Grid x:Name="PhrasesPanel" Grid.Row="2" RowSpacing="8">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="*" />
+      </Grid.RowDefinitions>
+      <Grid ColumnSpacing="8">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <AutoSuggestBox x:Name="PhraseSearch" PlaceholderText="搜尋詞或注音" QueryIcon="Find" Width="320"
+                        HorizontalAlignment="Left" VerticalAlignment="Center" TextChanged="PhraseSearch_TextChanged" />
+        <CommandBar Grid.Column="1" DefaultLabelPosition="Right" Background="Transparent" IsOpen="False">
+          <AppBarButton Icon="Add" Label="新增" Click="AddPhrase_Click" />
+          <AppBarButton x:Name="EditPhraseButton" Icon="Edit" Label="編輯" Click="EditPhrase_Click" IsEnabled="False" />
+          <AppBarButton x:Name="DeletePhraseButton" Icon="Delete" Label="刪除" Click="DeletePhrases_Click" IsEnabled="False" />
+          <CommandBar.SecondaryCommands>
+            <AppBarButton x:Name="MakeManualButton" Label="自動成詞轉為手動詞" Click="MakeManual_Click" IsEnabled="False">
+              <AppBarButton.Icon><FontIcon Glyph="&#xE718;" /></AppBarButton.Icon>
+            </AppBarButton>
+            <AppBarSeparator />
+            <AppBarButton Label="匯入詞彙…" Click="ImportPhrases_Click">
+              <AppBarButton.Icon><FontIcon Glyph="&#xE8B5;" /></AppBarButton.Icon>
+            </AppBarButton>
+            <AppBarButton Label="匯出詞彙…" Click="ExportPhrases_Click">
+              <AppBarButton.Icon><FontIcon Glyph="&#xEDE1;" /></AppBarButton.Icon>
+            </AppBarButton>
+          </CommandBar.SecondaryCommands>
+        </CommandBar>
+      </Grid>
+
+      <Grid Grid.Row="1" Padding="16,0,16,0" ColumnSpacing="12">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="2*" />
+          <ColumnDefinition Width="3*" />
+          <ColumnDefinition Width="1.2*" />
+          <ColumnDefinition Width="1.2*" />
+        </Grid.ColumnDefinitions>
+        <Button Content="詞" Tag="text" Style="{StaticResource ColumnHeaderButtonStyle}" Click="PhraseSort_Click" />
+        <Button Grid.Column="1" Content="注音" Tag="reading" Style="{StaticResource ColumnHeaderButtonStyle}" Click="PhraseSort_Click" />
+        <Button Grid.Column="2" Content="來源" Tag="kind" Style="{StaticResource ColumnHeaderButtonStyle}" Click="PhraseSort_Click" />
+        <Button Grid.Column="3" Content="加入日期" Tag="created" Style="{StaticResource ColumnHeaderButtonStyle}" Click="PhraseSort_Click" />
+      </Grid>
+
+      <Grid Grid.Row="2">
+        <ListView x:Name="PhraseList" SelectionMode="Extended" SelectionChanged="PhraseList_SelectionChanged"
+                  DoubleTapped="PhraseList_DoubleTapped"
+                  Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                  BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
+          <ListView.ItemTemplate>
+            <DataTemplate x:DataType="local:PhraseInfo">
+              <Grid ColumnSpacing="12" Padding="0,6">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="2*" />
+                  <ColumnDefinition Width="3*" />
+                  <ColumnDefinition Width="1.2*" />
+                  <ColumnDefinition Width="1.2*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{x:Bind Text}" FontSize="16" TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Column="1" Text="{x:Bind Reading}" TextTrimming="CharacterEllipsis"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="2" Text="{x:Bind KindText}" VerticalAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <TextBlock Grid.Column="3" Text="{x:Bind CreatedText}" VerticalAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+              </Grid>
+            </DataTemplate>
+          </ListView.ItemTemplate>
+        </ListView>
+        <TextBlock x:Name="PhrasesEmpty" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" Visibility="Collapsed"
+                   Text="還沒有詞彙。&#x0a;按「新增」加入人名、專有名詞等詞庫裡沒有的詞，或由輸入時的選字自動學習。" />
+      </Grid>
+    </Grid>
+
+    <!-- Learned picks -->
+    <Grid x:Name="LearningPanel" Grid.Row="2" RowSpacing="8" Visibility="Collapsed">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="*" />
+      </Grid.RowDefinitions>
+      <tk:SettingsCard Header="從選字學習"
+                       Description="改選過的詞下次排在前面，權重每 30 天減半。與語言列「暫停學習」同步。">
+        <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE8F1;" /></tk:SettingsCard.HeaderIcon>
+        <ToggleSwitch x:Name="LearningSwitch" OnContent="開啟" OffContent="已暫停" Toggled="LearningSwitch_Toggled" />
+      </tk:SettingsCard>
+      <Grid Grid.Row="1" ColumnSpacing="8">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <AutoSuggestBox x:Name="SelectionSearch" PlaceholderText="搜尋詞或注音" QueryIcon="Find" Width="320"
+                        HorizontalAlignment="Left" VerticalAlignment="Center" TextChanged="SelectionSearch_TextChanged" />
+        <CommandBar Grid.Column="1" DefaultLabelPosition="Right" Background="Transparent">
+          <AppBarButton x:Name="DeleteSelectionButton" Icon="Delete" Label="刪除" Click="DeleteSelections_Click" IsEnabled="False" />
+          <AppBarButton Label="清除全部學習紀錄" Click="ClearLearning_Click">
+            <AppBarButton.Icon><FontIcon Glyph="&#xE894;" /></AppBarButton.Icon>
+          </AppBarButton>
+        </CommandBar>
+      </Grid>
+      <Grid Grid.Row="2" Padding="16,0,16,0" ColumnSpacing="12">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="2*" />
+          <ColumnDefinition Width="3*" />
+          <ColumnDefinition Width="2*" />
+          <ColumnDefinition Width="0.8*" />
+          <ColumnDefinition Width="2.2*" />
+        </Grid.ColumnDefinitions>
+        <TextBlock Text="詞" Margin="4,2" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        <TextBlock Grid.Column="1" Text="注音" Margin="4,2" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        <TextBlock Grid.Column="2" Text="前一個詞" Margin="4,2" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        <TextBlock Grid.Column="3" Text="權重" Margin="4,2" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        <TextBlock Grid.Column="4" Text="最後選用" Margin="4,2" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+      </Grid>
+      <Grid Grid.Row="3">
+        <ListView x:Name="SelectionList" SelectionMode="Extended" SelectionChanged="SelectionList_SelectionChanged"
+                  Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                  BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
+          <ListView.ItemTemplate>
+            <DataTemplate x:DataType="local:SelectionInfo">
+              <Grid ColumnSpacing="12" Padding="0,6">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="2*" />
+                  <ColumnDefinition Width="3*" />
+                  <ColumnDefinition Width="2*" />
+                  <ColumnDefinition Width="0.8*" />
+                  <ColumnDefinition Width="2.2*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{x:Bind Text}" FontSize="16" TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Column="1" Text="{x:Bind Reading}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <TextBlock Grid.Column="2" Text="{x:Bind PrevText}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <TextBlock Grid.Column="3" Text="{x:Bind WeightText}" VerticalAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <TextBlock Grid.Column="4" Text="{x:Bind UpdatedText}" VerticalAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+              </Grid>
+            </DataTemplate>
+          </ListView.ItemTemplate>
+        </ListView>
+        <TextBlock x:Name="SelectionsEmpty" HorizontalAlignment="Center" VerticalAlignment="Center"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" Visibility="Collapsed"
+                   Text="沒有學習紀錄。" />
+      </Grid>
+    </Grid>
+  </Grid>
+</Page>

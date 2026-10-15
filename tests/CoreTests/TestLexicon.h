@@ -10,7 +10,7 @@
 inline const llaime::Lexicon& TestLexicon() {
   static llaime::Lexicon lexicon;
   static bool opened = lexicon.Open(LLAIME_TEST_LEXICON);
-  EXPECT_TRUE(opened) << "build data/build/lexicon.bin first (see README)";
+  EXPECT_TRUE(opened) << "build data/build/lexicons first (see README)";
   return lexicon;
 }
 

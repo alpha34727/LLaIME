@@ -7,7 +7,7 @@
 // Reports, per pick:context bonus (nats, see LearnedBonus): sentence accuracy while learning (first pass), when typing the same
 // set again (second pass), and on a held-out set never corrected (does learning hurt?).
 //
-//   LLaIME.LearnSim --lexicon data/build/lexicon.bin --model models/x.gguf
+//   LLaIME.LearnSim --lexicon data/build/lexicons --model models/x.gguf
 //                   --data tests/eval/commonvoice_dev.tsv --heldout tests/eval/commonvoice_test.tsv
 //                   [--limit N] [--bonus 0:0,1:3] [--k 16] [--device auto]
 #include <windows.h>
@@ -135,7 +135,7 @@ std::shared_ptr<UserDictionary> Build(const proto::UserDictResponse& snap) {
 int main(int argc, char** argv) {
   SetConsoleOutputCP(CP_UTF8);
   std::map<std::string, std::string> args = {
-      {"--lexicon", "data/build/lexicon.bin"},
+      {"--lexicon", "data/build/lexicons"},
       {"--data", "tests/eval/commonvoice_dev.tsv"},
       {"--heldout", "tests/eval/commonvoice_test.tsv"},
       {"--model", ""},

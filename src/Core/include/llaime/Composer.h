@@ -43,6 +43,12 @@ class Composer {
  public:
   explicit Composer(const Lexicon* lexicon) : lexicon_(lexicon) {}
 
+  // Replacing the lexicon (layers turned on or off) re-converts the buffer.
+  void SetLexicon(const Lexicon* lexicon) {
+    lexicon_ = lexicon;
+    Invalidate();
+  }
+
   // The user's phrases and picks, merged into every lookup (may be null). Must outlive its use
   // here; replacing it re-converts the buffer.
   void SetUserDictionary(const UserDictionary* user) {

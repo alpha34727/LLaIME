@@ -1,10 +1,12 @@
-<#
+﻿<#
 .SYNOPSIS
   Installs the locally built TIP DLLs into Program Files and registers them (dev use).
 .DESCRIPTION
   Copies build\x64 and build\x86 LLaIME.Tip.dll to "C:\Program Files\LLaIME\{x64,x86}" and
   registers them with regsvr32. A DLL that is loaded by running apps cannot be overwritten,
-  so the old file is renamed aside first. Self-elevates via UAC.
+  so the old file is renamed aside first. Also installs the lexicon layers (data\lexicons), the
+  engine, and the settings app (settings\, built here first) with a Start menu shortcut.
+  Self-elevates via UAC.
 .PARAMETER Configuration
   Debug or Release. Defaults to whichever x64 TIP build is newer.
 .PARAMETER Model
@@ -33,6 +35,13 @@ if (-not $Configuration) {
 
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+  # The settings app is built before elevating, as the user (NuGet cache, no admin files).
+  if (-not $Uninstall) {
+    $app = Join-Path (Split-Path -Parent $PSScriptRoot) 'src\Settings\App'
+    Write-Host 'Building the settings app'
+    & dotnet build $app -c Release --nologo -v quiet
+    if ($LASTEXITCODE -ne 0) { throw 'Settings app build failed' }
+  }
   $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Configuration', $Configuration, '-Model', $Model)
   if ($Uninstall) { $argList += '-Uninstall' }
   $proc = Start-Process powershell -Verb RunAs -ArgumentList $argList -Wait -PassThru
@@ -82,19 +91,54 @@ foreach ($t in $targets) {
 }
 
 if ($Uninstall) {
+  Get-Process LLaIME.Settings -ErrorAction SilentlyContinue | Stop-Process -Force
+  Remove-Item (Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\LLaIME 設定.lnk') -ErrorAction SilentlyContinue
   Remove-Item $installRoot -Recurse -Force -ErrorAction SilentlyContinue
 } else {
-  $lexicon = Join-Path $repo 'data\build\lexicon.bin'
-  if (-not (Test-Path $lexicon)) { throw "Missing $lexicon (run: cd tools; uv run python prepare_lexicon.py)" }
-  $dataDir = Join-Path $installRoot 'data'
-  New-Item -ItemType Directory -Force $dataDir | Out-Null
-  $dest = Join-Path $dataDir 'lexicon.bin'
-  # The lexicon is memory-mapped by running apps; rename it aside like the DLLs.
-  Get-ChildItem $dataDir -Filter 'lexicon.bin.old*' -ErrorAction SilentlyContinue |
+  # Lexicon layers, one .bin + .ini per source. Running apps map them, so files in use are
+  # renamed aside rather than overwritten.
+  $layers = Join-Path $repo 'data\build\lexicons'
+  if (-not (Test-Path (Join-Path $layers 'mcbopomofo.bin'))) {
+    throw "Missing $layers (run: cd tools; uv run python prepare_lexicon.py)"
+  }
+  $lexDir = Join-Path $installRoot 'data\lexicons'
+  New-Item -ItemType Directory -Force $lexDir | Out-Null
+  Get-ChildItem $lexDir -Filter '*.old*' -ErrorAction SilentlyContinue |
     ForEach-Object { try { Remove-Item $_.FullName -Force -ErrorAction Stop } catch {} }
-  if (Test-Path $dest) { Rename-Item $dest ("lexicon.bin.old" + [DateTime]::Now.ToString('yyyyMMddHHmmss')) }
-  Copy-Item $lexicon $dest
-  Write-Host "Installed $dest"
+  $stamp = [DateTime]::Now.ToString('yyyyMMddHHmmss')
+  foreach ($file in Get-ChildItem $layers -Include '*.bin', '*.ini' -File -Recurse) {
+    $dest = Join-Path $lexDir $file.Name
+    if ((Test-Path $dest) -and $file.Extension -eq '.bin') { Rename-Item $dest ($file.Name + ".old$stamp") }
+    Copy-Item $file.FullName $dest -Force
+  }
+  # The single-file lexicon of earlier versions.
+  foreach ($old in Get-ChildItem (Join-Path $installRoot 'data') -Filter 'lexicon.bin*' -File -ErrorAction SilentlyContinue) {
+    try { Remove-Item $old.FullName -Force -ErrorAction Stop } catch { Rename-Item $old.FullName ($old.Name + ".old$stamp") -ErrorAction SilentlyContinue }
+  }
+  Write-Host "Installed lexicon layers to $lexDir"
+
+  # Settings app (self-contained WinUI 3 build with the native bridge).
+  $appOut = Get-ChildItem (Join-Path $repo 'src\Settings\App\bin\Release') -Recurse -Filter 'LLaIME.Settings.exe' |
+    Sort-Object LastWriteTime | Select-Object -Last 1
+  if ($appOut) {
+    $settingsDir = Join-Path $installRoot 'settings'
+    if (Test-Path $settingsDir) {
+      Get-Process LLaIME.Settings -ErrorAction SilentlyContinue | Stop-Process -Force
+      Start-Sleep -Milliseconds 300
+      Remove-Item $settingsDir -Recurse -Force
+    }
+    Copy-Item $appOut.DirectoryName $settingsDir -Recurse
+    $shortcut = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\LLaIME 設定.lnk'
+    $shell = New-Object -ComObject WScript.Shell
+    $link = $shell.CreateShortcut($shortcut)
+    $link.TargetPath = Join-Path $settingsDir 'LLaIME.Settings.exe'
+    $link.WorkingDirectory = $settingsDir
+    $link.Description = 'LLaIME 注音輸入法設定'
+    $link.Save()
+    Write-Host "Installed the settings app to $settingsDir (Start menu: LLaIME 設定)"
+  } else {
+    Write-Warning 'Settings app not built (src\Settings\App)'
+  }
 
   # Engine (always the Release build: it runs the model) and llama.cpp / CUDA DLLs.
   $engineSrc = Join-Path $repo 'build/x64/src/Engine/Release'

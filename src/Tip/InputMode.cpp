@@ -1,6 +1,10 @@
 // Chinese/English mode, kept in the keyboard compartments so the taskbar input indicator
 // shows 中/英 and clicking it switches modes.
+#include <windows.h>
+#include <shellapi.h>
+
 #include "EditSession.h"
+#include "Globals.h"
 #include "LangBarButton.h"
 #include "TextService.h"
 #include "ui/ThemeWatcher.h"
@@ -112,6 +116,18 @@ void TextService::ToggleChineseFromUi() {
   SetChineseMode(!chineseMode_);
 }
 
+// LLaIME.Settings.exe next to the DLL's folder: <root>\x64\LLaIME.Tip.dll ->
+// <root>\settings\LLaIME.Settings.exe. Apps in an AppContainer cannot start it; the settings
+// are also in the Start menu.
+void TextService::OpenSettings() {
+  wchar_t path[MAX_PATH];
+  GetModuleFileNameW(g_hInst, path, MAX_PATH);
+  std::wstring exe(path);
+  exe = exe.substr(0, exe.find_last_of(L'\\'));
+  exe = exe.substr(0, exe.find_last_of(L'\\')) + L"\\settings\\LLaIME.Settings.exe";
+  ShellExecuteW(nullptr, L"open", exe.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
+
 bool TextService::InitLangBar() {
   ComPtr<ITfLangBarItemMgr> mgr;
   if (FAILED(threadMgr_.As(&mgr))) return false;
@@ -123,6 +139,7 @@ bool TextService::InitLangBar() {
       [this] { SetFullShape(!fullShape_); },
       [this] { return !learningEnabled_; },
       [this] { SetLearningEnabled(!learningEnabled_); },
+      [] { OpenSettings(); },
   });
   if (FAILED(mgr->AddItem(langBarButton_))) {
     langBarButton_->Release();

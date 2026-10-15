@@ -18,6 +18,7 @@ enum MenuId : UINT {
   kMenuHalfShape,
   kMenuFullShape,
   kMenuPauseLearning,
+  kMenuSettings,
 };
 
 }  // namespace
@@ -102,6 +103,8 @@ STDMETHODIMP LangBarButton::OnClick(TfLBIClick click, POINT, const RECT*) {
       {kMenuFullShape, L"全形", full},
       {0, L"", false, true},
       {kMenuPauseLearning, L"暫停學習", callbacks_.isLearningPaused()},
+      {0, L"", false, true},
+      {kMenuSettings, L"設定", false},
   };
   OnMenuSelect(ShowPopupMenu(items));
   return S_OK;
@@ -118,6 +121,7 @@ STDMETHODIMP LangBarButton::OnMenuSelect(UINT id) {
     case kMenuHalfShape: if (full) callbacks_.toggleFullShape(); break;
     case kMenuFullShape: if (!full) callbacks_.toggleFullShape(); break;
     case kMenuPauseLearning: callbacks_.toggleLearning(); break;
+    case kMenuSettings: callbacks_.openSettings(); break;
     default: break;
   }
   return S_OK;

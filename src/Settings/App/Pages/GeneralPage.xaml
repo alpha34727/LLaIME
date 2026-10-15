@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="LLaIME.Settings.Pages.GeneralPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:tk="using:CommunityToolkit.WinUI.Controls">
+  <ScrollViewer>
+    <StackPanel MaxWidth="1000" Padding="56,0,56,40" Spacing="{StaticResource SettingsCardSpacing}">
+      <TextBlock Text="一般" Style="{StaticResource PageTitleTextBlockStyle}" />
+
+      <TextBlock Text="輸入" Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" />
+      <tk:SettingsCard Header="鍵盤排列" Description="注音符號在鍵盤上的位置。其他排列（倚天、許氏等）之後提供。">
+        <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE765;" /></tk:SettingsCard.HeaderIcon>
+        <ComboBox x:Name="LayoutBox" SelectedIndex="0" MinWidth="200">
+          <ComboBoxItem Content="標準（大千）" Tag="standard" />
+        </ComboBox>
+      </tk:SettingsCard>
+
+      <TextBlock Text="學習" Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" />
+      <tk:SettingsCard Header="從選字學習"
+                       Description="記住您改選的字詞，並把常連續選用的單字自動組成詞。與語言列右鍵選單的「暫停學習」同步；密碼欄與無痕視窗一律不學習。">
+        <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE8F1;" /></tk:SettingsCard.HeaderIcon>
+        <ToggleSwitch x:Name="LearningSwitch" OnContent="開啟" OffContent="已暫停" Toggled="LearningSwitch_Toggled" />
+      </tk:SettingsCard>
+      <tk:SettingsCard Header="使用者詞庫與學習紀錄" Description="檢視、加入或刪除您的詞彙，清除學習紀錄。"
+                       IsClickEnabled="True" Click="UserDict_Click">
+        <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE77B;" /></tk:SettingsCard.HeaderIcon>
+      </tk:SettingsCard>
+
+      <TextBlock Text="資料" Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" />
+      <tk:SettingsCard x:Name="DataFolderCard" Header="使用者資料夾"
+                       IsClickEnabled="True" Click="DataFolder_Click">
+        <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE8B7;" /></tk:SettingsCard.HeaderIcon>
+        <tk:SettingsCard.ActionIcon><FontIcon Glyph="&#xE8A7;" /></tk:SettingsCard.ActionIcon>
+      </tk:SettingsCard>
+    </StackPanel>
+  </ScrollViewer>
+</Page>

@@ -8,11 +8,15 @@
 //                        ; auto: llm when a GPU is present, otherwise laya
 //   path=C:\...\Qwen3.5-2B-Q4_K_M.gguf
 //   device=auto          ; auto, CPU, CUDA0, Vulkan0, ...
+//   threads=0            ; CPU threads, 0: llama.cpp default
 //   [laya]
 //   path=C:\...\models\laya-zh  ; laya.int8.onnx + tokenizer.bin
 //   threads=0            ; 0: ONNX Runtime default
 // Command line overrides: --ranker <name> --model <path> --device <name> --laya <dir>
 //                         --userdb <path> (instead of user.db, for tests)
+//                         --settings <path> (instead of engine.ini, for tests)
+// The settings app writes engine.ini and sends ReloadRequest; the ranker is then unloaded and
+// loaded again with the new settings (command line overrides still apply).
 //
 // The user dictionary (phrases and learned picks) lives in %LOCALAPPDATA%\LLaIME\user.db
 // (UserStore). The pipe is served from the start; the model loads in the background, and until
@@ -23,8 +27,10 @@
 #include <shlobj.h>
 
 #include <atomic>
-#include <filesystem>
 #include <cstdio>
+#include <filesystem>
+#include <functional>
+#include <memory>
 #include <list>
 #include <mutex>
 #include <string>
@@ -49,6 +55,14 @@ constexpr size_t kCacheEntries = 256;
 // Laya log-probabilities are scaled so the TIP's fixed lexicon weight (0.75) gives the best
 // measured mix for Laya, lexicon weight 1.0 (tests/eval/RESULTS.md).
 constexpr double kLayaScale = 0.75;
+
+std::wstring FromUtf8(const std::string& s) {
+  if (s.empty()) return {};
+  int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
+  std::wstring out(n, L'\0');
+  MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), out.data(), n);
+  return out;
+}
 
 std::string ToUtf8(const std::wstring& s) {
   if (s.empty()) return {};
@@ -78,7 +92,15 @@ std::wstring DataDir() {
   return path;
 }
 
-std::wstring SettingsPath() { return DataDir() + L"\\engine.ini"; }
+// --settings replaces it (tests).
+std::wstring& SettingsOverride() {
+  static std::wstring path;
+  return path;
+}
+
+std::wstring SettingsPath() {
+  return SettingsOverride().empty() ? DataDir() + L"\\engine.ini" : SettingsOverride();
+}
 
 std::wstring ReadSetting(const wchar_t* section, const wchar_t* key, const wchar_t* fallback) {
   wchar_t buf[1024];
@@ -119,6 +141,7 @@ class Engine {
   struct Settings {
     std::wstring ranker = L"auto";
     std::wstring model, device = L"auto";
+    int threads = 0;
     std::wstring layaDir;
     int layaThreads = 0;
   };
@@ -142,16 +165,19 @@ class Engine {
     options.modelPath = ToUtf8(settings.model);
     options.device = ToUtf8(settings.device);
     options.maxCandidates = 16;
+    options.threads = settings.threads;
     std::string error;
-    if (!scorer_.Load(options, &error)) {
+    if (!scorer_->Load(options, &error)) {
       fprintf(stderr, "model load failed: %s\n", error.c_str());
+      SetError("LLM: " + error);
       return false;
     }
     modelName_ = settings.model.substr(settings.model.find_last_of(L"\\/") + 1);
     deviceName_ = settings.device;
+    rankerName_ = L"llm";
     // The first decode allocates GPU buffers and compiles kernels; do it now rather than on
     // the user's first keystroke.
-    scorer_.Score(kPromptPrefix, {"暖機", "暖身"});
+    scorer_->Score(kPromptPrefix, {"暖機", "暖身"});
     return true;
   }
 
@@ -161,24 +187,40 @@ class Engine {
     options.modelDir = settings.layaDir;
     options.threads = settings.layaThreads;
     std::string error;
-    if (!laya_.Load(options, &error)) {
+    if (!laya_->Load(options, &error)) {
       fprintf(stderr, "laya load failed: %s\n", error.c_str());
+      SetError("Laya: " + error);
       return false;
     }
     modelName_ = L"Laya (" + settings.layaDir.substr(settings.layaDir.find_last_of(L"\\/") + 1) +
                  L")";
     deviceName_ = L"CPU";
-    laya_.Score("", {"暖機", "暖身"});
+    rankerName_ = L"laya";
+    laya_->Score("", {"暖機", "暖身"});
     return true;
   }
 
-  // Loads the ranker on a background thread; requests are declined until it is ready.
+  // Loads the ranker on a background thread; requests are declined until it is ready. Called
+  // again (ReloadRequest), it unloads the current ranker first.
   void StartInBackground(Settings settings) {
     std::thread([this, settings] {
+      std::lock_guard<std::mutex> reload(reloadMutex_);
+      state_ = proto::StatusResponse::Loading;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        scorer_ = std::make_unique<LlmScorer>();
+        laya_ = std::make_unique<LayaScorer>();
+        cache_ = ScoreCache();
+      }
+      {
+        std::lock_guard<std::mutex> lock(errorMutex_);
+        error_.clear();
+      }
       if (Start(settings)) {
-        ready_ = true;
+        state_ = proto::StatusResponse::Ready;
         fprintf(stderr, "LLaIME engine ready: %ls\n", modelName_.c_str());
       } else {
+        state_ = proto::StatusResponse::Failed;
         fprintf(stderr, "no ranker could be loaded (%ls)\n", SettingsPath().c_str());
       }
     }).detach();
@@ -191,7 +233,7 @@ class Engine {
     return false;
   }
 
-  bool IsLoaded() const { return ready_ && (scorer_.IsLoaded() || laya_.IsLoaded()); }
+  bool IsLoaded() const { return state_ == proto::StatusResponse::Ready; }
 
   std::vector<uint8_t> Handle(const std::vector<uint8_t>& message) {
     proto::Reader in(message.data(), message.size());
@@ -204,9 +246,15 @@ class Engine {
         status.privateRankRequests = privateRankRequests_;
         status.contextRankRequests = contextRankRequests_;
         status.learnRequests = learnRequests_;
+        status.state = state_;
         if (status.modelLoaded) {
           status.model = modelName_;
           status.device = deviceName_;
+          status.ranker = rankerName_;
+        }
+        {
+          std::lock_guard<std::mutex> lock(errorMutex_);
+          status.error = error_;
         }
         return proto::Encode(status);
       }
@@ -246,6 +294,21 @@ class Engine {
         ack.userVersion = store_.Version();
         return proto::Encode(ack);
       }
+      case proto::MessageType::DevicesRequest: {
+        proto::DevicesResponse response;
+        for (const auto& d : LlmScorer::Devices()) {
+          response.devices.push_back({FromUtf8(d.name), FromUtf8(d.description), d.memoryTotal,
+                                      d.isGpu});
+        }
+        return proto::Encode(response);
+      }
+      case proto::MessageType::ReloadRequest: {
+        StartInBackground(reloadSettings_());
+        proto::Ack ack{proto::MessageType::ReloadRequest};
+        ack.ok = true;
+        ack.userVersion = store_.Version();
+        return proto::Encode(ack);
+      }
       default:
         break;
     }
@@ -262,32 +325,46 @@ class Engine {
     ++rankRequests_;
     if (request.privateMode) ++privateRankRequests_;
     if (!request.context.empty()) ++contextRankRequests_;
-    if (!IsLoaded()) return proto::Encode(response);
-
     std::wstring key = request.context;
     for (const auto& c : request.candidates) key += L'\x1f' + c;
     std::lock_guard<std::mutex> lock(mutex_);
+    // Checked under the lock: a reload replaces the rankers while holding it.
+    if (!IsLoaded()) return proto::Encode(response);
     if (!request.privateMode && cache_.Get(key, &response.scores)) {
       response.ok = true;
       return proto::Encode(response);
     }
     std::vector<std::string> candidates;
     for (const auto& c : request.candidates) candidates.push_back(ToUtf8(c));
-    if (laya_.IsLoaded()) {
-      response.scores = laya_.Score(ToUtf8(request.context), candidates);
+    if (laya_->IsLoaded()) {
+      response.scores = laya_->Score(ToUtf8(request.context), candidates);
       for (double& score : response.scores) score *= kLayaScale;
     } else {
-      response.scores = scorer_.Score(kPromptPrefix + ToUtf8(request.context), candidates);
+      response.scores = scorer_->Score(kPromptPrefix + ToUtf8(request.context), candidates);
     }
     response.ok = response.scores.size() == request.candidates.size();
     if (response.ok && !request.privateMode) cache_.Put(key, response.scores);
     return proto::Encode(response);
   }
 
-  LlmScorer scorer_;
-  LayaScorer laya_;
+  void SetError(const std::string& error) {
+    std::lock_guard<std::mutex> lock(errorMutex_);
+    if (!error_.empty()) error_ += L"\n";
+    error_ += FromUtf8(error);
+  }
+
+ public:
+  // Reads the settings again for a reload (engine.ini, then the command line).
+  std::function<Settings()> reloadSettings_;
+
+ private:
+  std::unique_ptr<LlmScorer> scorer_ = std::make_unique<LlmScorer>();
+  std::unique_ptr<LayaScorer> laya_ = std::make_unique<LayaScorer>();
   UserStore store_;
-  std::atomic<bool> ready_ = false;
+  std::atomic<proto::StatusResponse::State> state_ = proto::StatusResponse::Loading;
+  std::mutex reloadMutex_;  // one load at a time
+  std::mutex errorMutex_;
+  std::wstring error_, rankerName_;
   std::atomic<uint32_t> rankRequests_ = 0, privateRankRequests_ = 0, contextRankRequests_ = 0,
                         learnRequests_ = 0;
   std::mutex mutex_;  // one llama context: requests are scored one at a time
@@ -339,20 +416,27 @@ void ServeClient(Engine* engine, HANDLE pipe) {
 
 int wmain(int argc, wchar_t** argv) {
   SetConsoleOutputCP(CP_UTF8);
-  Engine::Settings settings;
-  settings.ranker = ReadSetting(L"model", L"ranker", L"auto");
-  settings.model = ReadSetting(L"model", L"path", L"");
-  settings.device = ReadSetting(L"model", L"device", L"auto");
-  settings.layaDir = ReadSetting(L"laya", L"path", L"");
-  settings.layaThreads = _wtoi(ReadSetting(L"laya", L"threads", L"0").c_str());
+  auto readSettings = [argc, argv] {
+    Engine::Settings settings;
+    settings.ranker = ReadSetting(L"model", L"ranker", L"auto");
+    settings.model = ReadSetting(L"model", L"path", L"");
+    settings.device = ReadSetting(L"model", L"device", L"auto");
+    settings.threads = _wtoi(ReadSetting(L"model", L"threads", L"0").c_str());
+    settings.layaDir = ReadSetting(L"laya", L"path", L"");
+    settings.layaThreads = _wtoi(ReadSetting(L"laya", L"threads", L"0").c_str());
+    for (int i = 1; i + 1 < argc; i += 2) {
+      std::wstring key = argv[i];
+      if (key == L"--ranker") settings.ranker = argv[i + 1];
+      if (key == L"--model") settings.model = argv[i + 1];
+      if (key == L"--device") settings.device = argv[i + 1];
+      if (key == L"--laya") settings.layaDir = argv[i + 1];
+    }
+    return settings;
+  };
   std::wstring userDb = DataDir() + L"\\user.db";
   for (int i = 1; i + 1 < argc; i += 2) {
-    std::wstring key = argv[i];
-    if (key == L"--ranker") settings.ranker = argv[i + 1];
-    if (key == L"--model") settings.model = argv[i + 1];
-    if (key == L"--device") settings.device = argv[i + 1];
-    if (key == L"--laya") settings.layaDir = argv[i + 1];
-    if (key == L"--userdb") userDb = argv[i + 1];
+    if (std::wstring(argv[i]) == L"--userdb") userDb = argv[i + 1];
+    if (std::wstring(argv[i]) == L"--settings") SettingsOverride() = argv[i + 1];
   }
 
   const std::wstring sid = proto::CurrentUserSid();
@@ -364,7 +448,8 @@ int wmain(int argc, wchar_t** argv) {
   std::error_code ec;
   std::filesystem::create_directories(DataDir(), ec);
   engine.OpenUserStore(userDb);
-  engine.StartInBackground(settings);
+  engine.reloadSettings_ = readSettings;
+  engine.StartInBackground(readSettings());
 
   SECURITY_ATTRIBUTES sa{};
   PSECURITY_DESCRIPTOR sd = nullptr;

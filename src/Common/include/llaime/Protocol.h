@@ -50,6 +50,9 @@ enum class MessageType : uint32_t {
   PhraseRequest = 8,       // add / remove a user phrase -> Ack
   SetLearningRequest = 9,  // pause / resume learning -> Ack
   Ack = 10,
+  DevicesRequest = 11,  // -> compute devices the language model can run on
+  DevicesResponse = 12,
+  ReloadRequest = 13,  // reread engine.ini and load the ranker again -> Ack
 };
 
 // Syllables (llaime::Syllable bits) of a reading.
@@ -127,6 +130,7 @@ struct Ack {
 };
 
 struct StatusResponse {
+  enum State : uint32_t { Loading = 0, Ready = 1, Failed = 2 };
   bool modelLoaded = false;
   std::wstring model;
   std::wstring device;
@@ -136,6 +140,19 @@ struct StatusResponse {
   uint32_t privateRankRequests = 0;
   uint32_t contextRankRequests = 0;
   uint32_t learnRequests = 0;
+  State state = Loading;  // of the ranker
+  std::wstring ranker;    // "llm" or "laya" once ready
+  std::wstring error;     // why it failed (Failed)
+};
+
+struct DevicesResponse {
+  struct Device {
+    std::wstring name;         // "CPU", "CUDA0", "Vulkan0", ...
+    std::wstring description;  // e.g. "NVIDIA GeForce RTX 5060 Ti"
+    uint64_t memory = 0;       // bytes
+    bool gpu = false;
+  };
+  std::vector<Device> devices;
 };
 
 class Writer {
@@ -259,6 +276,9 @@ inline std::vector<uint8_t> Encode(const StatusResponse& r) {
   w.U32(r.privateRankRequests);
   w.U32(r.contextRankRequests);
   w.U32(r.learnRequests);
+  w.U32(r.state);
+  w.Str(r.ranker);
+  w.Str(r.error);
   return w.bytes();
 }
 
@@ -270,6 +290,49 @@ inline bool Decode(Reader& in, StatusResponse* r) {
     return false;
   }
   r->modelLoaded = loaded != 0;
+  uint32_t state = 0;
+  if (!in.U32(&state) || state > StatusResponse::Failed || !in.Str(&r->ranker) ||
+      !in.Str(&r->error)) {
+    return false;
+  }
+  r->state = static_cast<StatusResponse::State>(state);
+  return true;
+}
+
+inline std::vector<uint8_t> EncodeDevicesRequest() {
+  return Writer(MessageType::DevicesRequest).bytes();
+}
+
+inline std::vector<uint8_t> EncodeReloadRequest() {
+  return Writer(MessageType::ReloadRequest).bytes();
+}
+
+inline std::vector<uint8_t> Encode(const DevicesResponse& r) {
+  Writer w(MessageType::DevicesResponse);
+  w.U32(static_cast<uint32_t>(r.devices.size()));
+  for (const auto& d : r.devices) {
+    w.Str(d.name);
+    w.Str(d.description);
+    w.U32(static_cast<uint32_t>(d.memory & 0xffffffff));
+    w.U32(static_cast<uint32_t>(d.memory >> 32));
+    w.U32(d.gpu ? 1 : 0);
+  }
+  return w.bytes();
+}
+
+inline bool Decode(Reader& in, DevicesResponse* r) {
+  uint32_t count = 0;
+  if (!in.Count(&count, 20)) return false;
+  r->devices.resize(count);
+  for (auto& d : r->devices) {
+    uint32_t low = 0, high = 0, gpu = 0;
+    if (!in.Str(&d.name) || !in.Str(&d.description) || !in.U32(&low) || !in.U32(&high) ||
+        !in.U32(&gpu)) {
+      return false;
+    }
+    d.memory = (static_cast<uint64_t>(high) << 32) | low;
+    d.gpu = gpu != 0;
+  }
   return true;
 }
 

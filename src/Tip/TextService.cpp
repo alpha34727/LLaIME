@@ -1,7 +1,5 @@
 #include "TextService.h"
 
-#include <filesystem>
-#include <mutex>
 
 #include "DisplayAttribute.h"
 #include "EditSession.h"
@@ -20,27 +18,13 @@ std::shared_ptr<const BopomofoLayout> StandardLayout() {
   return layout;
 }
 
-// One memory-mapped lexicon per process, looked up next to the installed DLL:
-// <root>\x64\LLaIME.Tip.dll -> <root>\data\lexicon.bin
-const Lexicon* SharedLexicon() {
-  static Lexicon lexicon;
-  static std::once_flag once;
-  std::call_once(once, [] {
-    wchar_t path[MAX_PATH];
-    GetModuleFileNameW(g_hInst, path, MAX_PATH);
-    std::filesystem::path dll(path);
-    for (const auto& candidate : {dll.parent_path().parent_path() / L"data" / L"lexicon.bin",
-                                  dll.parent_path() / L"data" / L"lexicon.bin"}) {
-      if (lexicon.Open(candidate.wstring())) break;
-    }
-  });
-  return lexicon.IsOpen() ? &lexicon : nullptr;
-}
-
 }  // namespace
 
 TextService::TextService()
-    : lexicon_(SharedLexicon()), reading_(StandardLayout()), composer_(lexicon_) {
+    : lexiconRef_(CurrentLexicon()),
+      lexicon_(lexiconRef_.get()),
+      reading_(StandardLayout()),
+      composer_(lexicon_) {
   DllAddRef();
 }
 

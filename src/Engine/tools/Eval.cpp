@@ -1,7 +1,7 @@
 // Candidate-selection evaluation: lexicon-only conversion vs. language-model reranking of the
 // lexicon's N best conversions, on a TSV of (id, context, text, reading).
 //
-//   LLaIME.Eval --lexicon data/build/lexicon.bin --data tests/eval/commonvoice_dev.tsv
+//   LLaIME.Eval --lexicon data/build/lexicons --data tests/eval/commonvoice_dev.tsv
 //               [--model models/x.gguf] [--device auto|CPU|CUDA0] [--k 16] [--limit N]
 //               [--prefix "..."] [--no-context] [--dump out.tsv]
 //               [--laya <model dir>] [--threads N]   rank with Laya (ONNX, CPU) instead
@@ -102,7 +102,7 @@ int CheckLaya(LayaScorer& laya, const std::string& path) {
 int main(int argc, char** argv) {
   SetConsoleOutputCP(CP_UTF8);
   std::map<std::string, std::string> args = {
-      {"--lexicon", "data/build/lexicon.bin"},
+      {"--lexicon", "data/build/lexicons"},
       {"--data", "tests/eval/commonvoice_dev.tsv"},
       {"--model", ""},
       {"--device", "auto"},

@@ -12,6 +12,9 @@
 
 namespace llaime {
 
+// Lexicons.cpp: the process-wide lexicon with the layers the settings enable.
+std::shared_ptr<const Lexicon> CurrentLexicon();
+
 class CandidateWindow;
 class LangBarButton;
 class ThemeWatcher;
@@ -113,6 +116,7 @@ class TextService final : public ITfTextInputProcessorEx,
   void WriteConversionMode();
   // Toggles from the taskbar button: commits any pending composition first.
   void ToggleChineseFromUi();
+  static void OpenSettings();
   bool InitLangBar();
   void UninitLangBar();
 
@@ -140,6 +144,8 @@ class TextService final : public ITfTextInputProcessorEx,
   void OnAck(const protocol::Ack& ack);
   // Takes the process's newest snapshot, unless composing.
   void ApplyUserDictionary();
+  // Lexicons.cpp: switches to the layers the settings now enable (not while composing).
+  void ApplyLexicon();
   // Sends what committing elements [0, upTo) of the buffer taught.
   void LearnFromCommit(size_t upTo);
   void SetLearningEnabled(bool enabled);
@@ -187,6 +193,7 @@ class TextService final : public ITfTextInputProcessorEx,
   bool shiftAlone_ = false;
   bool readingInvalid_ = false;  // last tone key completed a syllable that does not exist
 
+  std::shared_ptr<const Lexicon> lexiconRef_;  // keeps the layers mapped while in use
   const Lexicon* lexicon_;
   BopomofoReading reading_;
   Composer composer_;

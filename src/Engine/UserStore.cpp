@@ -293,4 +293,125 @@ bool UserStore::RemovePhrase(const protocol::Reading& reading, const std::wstrin
   return true;
 }
 
+std::vector<UserStore::PhraseRow> UserStore::ListPhrases() {
+  std::vector<PhraseRow> out;
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!db_) return out;
+  Stmt q(db_, "SELECT reading, text, kind, created FROM phrases ORDER BY created DESC, text");
+  while (q.Step()) {
+    PhraseRow row{WireReading(q.Text(0)), q.Text(1), static_cast<uint32_t>(q.Int(2)), q.Int(3)};
+    if (!row.reading.empty()) out.push_back(std::move(row));
+  }
+  return out;
+}
+
+std::vector<UserStore::SelectionRow> UserStore::ListSelections(int64_t now) {
+  std::vector<SelectionRow> out;
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!db_) return out;
+  Stmt q(db_,
+         "SELECT reading, text, prev, " DECAYED("?1") " AS w, updated FROM selections"
+         " WHERE w >= ?2 ORDER BY w DESC");
+  q.Bind(1, Now(now)).Bind(2, UserDictionary::kMinWeight).Bind(9, kHalfLifeDays);
+  while (q.Step()) {
+    SelectionRow row{WireReading(q.Text(0)), q.Text(1), q.Text(2), q.Real(3), q.Int(4)};
+    if (!row.reading.empty()) out.push_back(std::move(row));
+  }
+  return out;
+}
+
+bool UserStore::UpdatePhrase(const protocol::Reading& reading, const std::wstring& text,
+                             const protocol::Reading& newReading, const std::wstring& newText) {
+  const auto stored = ReadingText(reading);
+  const auto updated = ReadingText(newReading);
+  if (!stored || !updated || !ValidText(newText)) return false;
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!db_ || !Exec("BEGIN IMMEDIATE")) return false;
+  int64_t created = Now(0);
+  {
+    Stmt q(db_, "SELECT created FROM phrases WHERE reading = ?1 AND text = ?2");
+    if (q.Bind(1, *stored).Bind(2, text).Step()) created = q.Int(0);
+  }
+  Stmt remove(db_, "DELETE FROM phrases WHERE reading = ?1 AND text = ?2");
+  Stmt add(db_,
+           "INSERT INTO phrases(reading, text, kind, created) VALUES(?1, ?2, 0, ?3)"
+           " ON CONFLICT(reading, text) DO UPDATE SET kind = 0");
+  const bool ok = remove.Bind(1, *stored).Bind(2, text).Run() &&
+                  add.Bind(1, *updated).Bind(2, newText).Bind(3, created).Run();
+  if (!ok || !Exec("COMMIT")) {
+    Exec("ROLLBACK");
+    return false;
+  }
+  Bump();
+  CheckOutsideChanges();
+  return true;
+}
+
+bool UserStore::MakeManual(const protocol::Reading& reading, const std::wstring& text) {
+  const auto stored = ReadingText(reading);
+  if (!stored) return false;
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!db_) return false;
+  Stmt q(db_, "UPDATE phrases SET kind = 0 WHERE reading = ?1 AND text = ?2");
+  if (!q.Bind(1, *stored).Bind(2, text).Run()) return false;
+  Bump();
+  CheckOutsideChanges();
+  return true;
+}
+
+size_t UserStore::AddPhrases(
+    const std::vector<std::pair<protocol::Reading, std::wstring>>& phrases, int64_t now) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!db_ || !Exec("BEGIN IMMEDIATE")) return 0;
+  now = Now(now);
+  size_t added = 0;
+  for (const auto& [reading, text] : phrases) {
+    const auto stored = ReadingText(reading);
+    if (!stored || !ValidText(text)) continue;
+    Stmt q(db_,
+           "INSERT INTO phrases(reading, text, kind, created) VALUES(?1, ?2, 0, ?3)"
+           " ON CONFLICT(reading, text) DO UPDATE SET kind = 0");
+    if (q.Bind(1, *stored).Bind(2, text).Bind(3, now).Run()) {
+      added += sqlite3_changes(db_) > 0 ? 1 : 0;
+    }
+  }
+  if (!Exec("COMMIT")) {
+    Exec("ROLLBACK");
+    return 0;
+  }
+  Bump();
+  CheckOutsideChanges();
+  return added;
+}
+
+bool UserStore::RemoveSelection(const protocol::Reading& reading, const std::wstring& text,
+                                const std::wstring& prev) {
+  const auto stored = ReadingText(reading);
+  if (!stored) return false;
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!db_) return false;
+  Stmt q(db_, "DELETE FROM selections WHERE reading = ?1 AND text = ?2 AND prev = ?3");
+  if (!q.Bind(1, *stored).Bind(2, text).Bind(3, prev).Run()) return false;
+  Bump();
+  CheckOutsideChanges();
+  return true;
+}
+
+bool UserStore::ClearLearning() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!db_) return false;
+  // secure_delete overwrites what is deleted, and the checkpoint empties the write-ahead
+  // log, so nothing of it is left in the files either.
+  Exec("PRAGMA secure_delete=ON");
+  const bool ok = Exec("BEGIN IMMEDIATE; DELETE FROM selections; DELETE FROM phrase_runs;"
+                       " DELETE FROM phrases WHERE kind = 1; COMMIT;");
+  if (!ok) Exec("ROLLBACK");
+  Exec("PRAGMA secure_delete=OFF");
+  if (!ok) return false;
+  Exec("PRAGMA wal_checkpoint(TRUNCATE)");
+  Bump();
+  CheckOutsideChanges();
+  return true;
+}
+
 }  // namespace llaime

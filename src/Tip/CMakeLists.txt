@@ -26,6 +26,7 @@ add_library(LLaIME.Tip SHARED
   EngineClient.cpp
   Ranking.cpp
   UserDict.cpp
+  Lexicons.cpp
   Tip.def
   Tip.rc
 )

@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="LLaIME.Settings.Pages.ModelPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:tk="using:CommunityToolkit.WinUI.Controls">
+  <ScrollViewer>
+    <StackPanel MaxWidth="1000" Padding="56,0,56,40" Spacing="{StaticResource SettingsCardSpacing}">
+      <TextBlock Text="選字模型與加速" Style="{StaticResource PageTitleTextBlockStyle}" />
+      <TextBlock TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="0,0,0,8"
+                 Text="輸入法先用詞庫立即組出最可能的句子，再請本機模型從詞庫的候選中挑出最通順的一句。模型只在您的電腦上執行，不連網。" />
+
+      <InfoBar x:Name="StatusBar" IsOpen="True" IsClosable="False" Margin="0,4,0,0">
+        <InfoBar.ActionButton>
+          <Button x:Name="StartEngineButton" Content="啟動引擎" Click="StartEngine_Click" Visibility="Collapsed" />
+        </InfoBar.ActionButton>
+      </InfoBar>
+
+      <TextBlock Text="選字方式" Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" />
+      <tk:SettingsCard Header="選字模型" Description="自動：有顯示卡時用語言模型，否則用 CPU 模式。">
+        <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE950;" /></tk:SettingsCard.HeaderIcon>
+        <ComboBox x:Name="RankerBox" MinWidth="260" SelectionChanged="Setting_Changed">
+          <ComboBoxItem Content="自動" Tag="auto" />
+          <ComboBoxItem Content="語言模型（LLM，建議有顯示卡）" Tag="llm" />
+          <ComboBoxItem Content="CPU 模式（Laya）" Tag="laya" />
+        </ComboBox>
+      </tk:SettingsCard>
+
+      <tk:SettingsExpander x:Name="ModelExpander" Header="語言模型" IsExpanded="True"
+                           Description="GGUF 格式的因果語言模型。台灣 LoRA 版以台灣正體語料微調，選字較道地。">
+        <tk:SettingsExpander.HeaderIcon><FontIcon Glyph="&#xE8F1;" /></tk:SettingsExpander.HeaderIcon>
+        <ComboBox x:Name="ModelBox" MinWidth="320" MaxWidth="420" SelectionChanged="Setting_Changed">
+          <ComboBox.ItemTemplate>
+            <DataTemplate x:DataType="x:String">
+              <TextBlock Text="{x:Bind}" TextTrimming="CharacterEllipsis" />
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+        <tk:SettingsExpander.Items>
+          <tk:SettingsCard x:Name="ModelPathCard" Header="檔案位置">
+            <Button Content="瀏覽…" Click="BrowseModel_Click" />
+          </tk:SettingsCard>
+          <tk:SettingsCard Header="加速裝置" Description="語言模型在哪個裝置上執行。自動：有 NVIDIA 顯示卡用 CUDA，其次用其他顯示卡，最後用 CPU。">
+            <ComboBox x:Name="DeviceBox" MinWidth="320" MaxWidth="420" SelectionChanged="Setting_Changed" />
+          </tk:SettingsCard>
+          <tk:SettingsCard Header="CPU 執行緒數" Description="0 表示自動。只影響在 CPU 上執行的部分。">
+            <NumberBox x:Name="ThreadsBox" Minimum="0" Maximum="64" SpinButtonPlacementMode="Inline"
+                       SmallChange="1" MinWidth="140" ValueChanged="Threads_Changed" />
+          </tk:SettingsCard>
+        </tk:SettingsExpander.Items>
+      </tk:SettingsExpander>
+
+      <tk:SettingsCard x:Name="LayaCard" Header="CPU 模式模型（Laya）">
+        <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE9D9;" /></tk:SettingsCard.HeaderIcon>
+        <Button Content="選擇資料夾…" Click="BrowseLaya_Click" />
+      </tk:SettingsCard>
+
+      <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,12,0,0">
+        <Button x:Name="ApplyButton" Style="{StaticResource AccentButtonStyle}" Content="套用並重新載入模型"
+                Click="Apply_Click" IsEnabled="False" />
+        <TextBlock x:Name="ApplyHint" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                   Text="套用後輸入法照常可用；模型載入期間先以詞庫選字。" />
+      </StackPanel>
+
+      <TextBlock Text="測速" Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" />
+      <tk:SettingsCard x:Name="BenchmarkCard" Header="選字延遲"
+                       Description="以目前載入的模型送出 30 次和打字時一樣的選字請求，量測從送出到收到結果的時間。">
+        <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xEC4A;" /></tk:SettingsCard.HeaderIcon>
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <ProgressRing x:Name="BenchmarkRing" IsActive="False" Width="20" Height="20" />
+          <TextBlock x:Name="BenchmarkText" VerticalAlignment="Center" />
+          <Button x:Name="BenchmarkButton" Content="開始測速" Click="Benchmark_Click" />
+        </StackPanel>
+      </tk:SettingsCard>
+    </StackPanel>
+  </ScrollViewer>
+</Page>

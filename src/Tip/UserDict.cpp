@@ -91,6 +91,8 @@ void TextService::OnUserDictResponse(const protocol::UserDictResponse& response)
 void TextService::ApplyUserDictionary() {
   // Swapping it mid-composition would re-convert what is on screen; wait for the next one.
   if (IsComposing()) return;
+  // Lexicon layers turned on or off in the settings are picked up at the same points.
+  ApplyLexicon();
   std::lock_guard<std::mutex> lock(Shared().mutex);
   learningEnabled_ = Shared().learningEnabled;
   if (userDict_ == Shared().dict) return;

@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- LLaIME settings: WinUI 3 (Windows App SDK), unpackaged and self-contained so it runs
+       without installing the Windows App SDK runtime. Talks to the IME through
+       LLaIME.SettingsNative.dll (src/Settings/Native), built by CMake. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.22000.0</TargetPlatformMinVersion>
+    <RootNamespace>LLaIME.Settings</RootNamespace>
+    <AssemblyName>LLaIME.Settings</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\..\Tip\res\bopomofo.ico</ApplicationIcon>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <SatelliteResourceLanguages>zh-TW;en-US</SatelliteResourceLanguages>
+    <DefaultLanguage>zh-TW</DefaultLanguage>
+    <Version>0.1.0</Version>
+    <Product>LLaIME</Product>
+    <!-- App.Main handles single-instance redirection. -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\AppIcon.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\AppIcon.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.9169" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.SettingsControls" Version="8.2.251219" />
+  </ItemGroup>
+
+  <!-- The native bridge from the CMake build (Release, or Debug if that is all there is). -->
+  <PropertyGroup>
+    <NativeBridgeDir>$(MSBuildThisFileDirectory)..\..\..\build\x64\src\Settings\Native\Release\</NativeBridgeDir>
+    <NativeBridgeDir Condition="!Exists('$(NativeBridgeDir)LLaIME.SettingsNative.dll')">$(MSBuildThisFileDirectory)..\..\..\build\x64\src\Settings\Native\Debug\</NativeBridgeDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(NativeBridgeDir)LLaIME.SettingsNative.dll" Condition="Exists('$(NativeBridgeDir)LLaIME.SettingsNative.dll')">
+      <Link>LLaIME.SettingsNative.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+</Project>
