@@ -102,9 +102,10 @@ void TextService::RequestPrivacyUpdate(ITfDocumentMgr* docMgr) {
     SetPrivateMode(false);
     return;
   }
+  ComPtr<TextService> self(this);
   EditSession::Request(context.Get(), clientId_, TF_ES_ASYNCDONTCARE | TF_ES_READ,
-                       [this, context](TfEditCookie ec) {
-                         UpdatePrivacy(context.Get(), ec);
+                       [self, context](TfEditCookie ec) {
+                         self->UpdatePrivacy(context.Get(), ec);
                          return S_OK;
                        });
 }

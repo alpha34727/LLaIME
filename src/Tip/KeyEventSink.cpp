@@ -179,6 +179,8 @@ HRESULT TextService::ExecuteKeyAction(ITfContext* context, const KeyAction& acti
   ComPtr<ITfContext> ctx(context);
   return EditSession::Request(context, clientId_, TF_ES_SYNC | TF_ES_READWRITE,
                               [this, ctx, action](TfEditCookie ec) {
+                                // A key in another context than the composition's starts over.
+                                CompositionUsable(ctx.Get());
                                 HandleAction(ctx.Get(), ec, action);
                                 return S_OK;
                               });

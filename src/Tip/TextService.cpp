@@ -79,11 +79,16 @@ STDMETHODIMP TextService::ActivateEx(ITfThreadMgr* threadMgr, TfClientId clientI
   // Mouse actions arrive outside a key event, so they need their own edit sessions.
   candidateWindow_ = std::make_unique<CandidateWindow>(CandidateWindow::Handlers{
       [this](size_t index) {
-        if (!compositionContext_) return;
+        if (!compositionContext_ || !composition_) return;
         ComPtr<ITfContext> context = compositionContext_;
+        ComPtr<ITfComposition> composition = composition_;
+        ComPtr<TextService> self(this);
         EditSession::Request(context.Get(), clientId_, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE,
-                             [this, context, index](TfEditCookie ec) {
-                               SelectCandidate(context.Get(), ec, index);
+                             [self, context, composition, index](TfEditCookie ec) {
+                               if (self->composition_ == composition &&
+                                   self->compositionContext_ == context) {
+                                 self->SelectCandidate(context.Get(), ec, index);
+                               }
                                return S_OK;
                              });
       },
@@ -146,10 +151,35 @@ void TextService::UninitThreadMgrEventSink() {
 }
 
 STDMETHODIMP TextService::OnInitDocumentMgr(ITfDocumentMgr*) { return S_OK; }
-STDMETHODIMP TextService::OnUninitDocumentMgr(ITfDocumentMgr*) { return S_OK; }
+STDMETHODIMP TextService::OnUninitDocumentMgr(ITfDocumentMgr* docMgr) {
+  // The document is going away with our composition in it: forget it, never edit it.
+  ComPtr<ITfDocumentMgr> owner;
+  if (compositionContext_ && SUCCEEDED(compositionContext_->GetDocumentMgr(&owner)) &&
+      owner.Get() == docMgr) {
+    ResetState();
+  }
+  return S_OK;
+}
 
 STDMETHODIMP TextService::OnSetFocus(ITfDocumentMgr* focus, ITfDocumentMgr*) {
   CloseCandidates();
+  // Focus left the document we are composing in and the app did not end the composition:
+  // commit it there (later, in that document's own edit session).
+  ComPtr<ITfDocumentMgr> owner;
+  if (composition_ && compositionContext_ &&
+      SUCCEEDED(compositionContext_->GetDocumentMgr(&owner)) && owner.Get() != focus) {
+    ComPtr<ITfContext> context = compositionContext_;
+    ComPtr<ITfComposition> composition = composition_;
+    ComPtr<TextService> self(this);
+    EditSession::Request(context.Get(), clientId_, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE,
+                         [self, context, composition](TfEditCookie ec) {
+                           if (self->composition_ == composition &&
+                               self->compositionContext_ == context) {
+                             self->CommitAll(context.Get(), ec);
+                           }
+                           return S_OK;
+                         });
+  }
   RequestPrivacyUpdate(focus);
   return S_OK;
 }
@@ -159,7 +189,10 @@ STDMETHODIMP TextService::OnPushContext(ITfContext* context) {
   if (context && SUCCEEDED(context->GetDocumentMgr(&docMgr))) RequestPrivacyUpdate(docMgr.Get());
   return S_OK;
 }
-STDMETHODIMP TextService::OnPopContext(ITfContext*) { return S_OK; }
+STDMETHODIMP TextService::OnPopContext(ITfContext* context) {
+  if (context && context == compositionContext_.Get()) ResetState();
+  return S_OK;
+}
 
 STDMETHODIMP TextService::EnumDisplayAttributeInfo(IEnumTfDisplayAttributeInfo** enumInfo) {
   return CreateDisplayAttributeEnum(enumInfo);

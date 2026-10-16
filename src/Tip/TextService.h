@@ -155,6 +155,11 @@ class TextService final : public ITfTextInputProcessorEx,
   HRESULT ExecuteKeyAction(ITfContext* context, const KeyAction& action);
   void HandleAction(ITfContext* context, TfEditCookie ec, const KeyAction& action);
   bool IsComposing() const { return !composer_.empty() || !reading_.Empty(); }
+  // Whether an edit session on `context` may touch our composition. Apps (Word saving,
+  // Chromium moving focus) can replace the document's context without ending the
+  // composition; a range of one context must never be edited with another's cookie, so a
+  // composition left in another context is dropped (its text stays where it was).
+  bool CompositionUsable(ITfContext* context);
 
   // Composition (Composition.cpp)
   void UpdateComposition(ITfContext* context, TfEditCookie ec);

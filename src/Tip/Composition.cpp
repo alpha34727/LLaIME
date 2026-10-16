@@ -97,7 +97,18 @@ void TextService::ApplyDisplayAttribute(ITfContext* context, TfEditCookie ec, IT
   prop->SetValue(ec, range, &var);
 }
 
+bool TextService::CompositionUsable(ITfContext* context) {
+  if (!composition_) return true;
+  ComPtr<ITfRange> range;
+  if (compositionContext_.Get() == context && SUCCEEDED(composition_->GetRange(&range))) {
+    return true;
+  }
+  ResetState();
+  return false;
+}
+
 void TextService::UpdateComposition(ITfContext* context, TfEditCookie ec) {
+  if (!CompositionUsable(context)) return;
   if (!IsComposing()) {
     CancelComposition(context, ec);
     return;
@@ -125,6 +136,7 @@ void TextService::UpdateComposition(ITfContext* context, TfEditCookie ec) {
 }
 
 void TextService::CommitOverflow(ITfContext* context, TfEditCookie ec) {
+  if (!CompositionUsable(context)) return;
   if (composer_.size() <= kMaxElements || composer_.cursor() < composer_.size()) return;
   size_t drop = 0;
   std::wstring committed;
@@ -151,6 +163,7 @@ void TextService::CommitOverflow(ITfContext* context, TfEditCookie ec) {
 }
 
 void TextService::CommitAll(ITfContext* context, TfEditCookie ec) {
+  if (!CompositionUsable(context)) return;
   CloseCandidates();
   if (composition_) {
     LearnFromCommit(composer_.size());
@@ -183,6 +196,7 @@ void TextService::InsertDirect(ITfContext* context, TfEditCookie ec, const std::
 }
 
 void TextService::CancelComposition(ITfContext* context, TfEditCookie ec) {
+  if (!CompositionUsable(context)) return;
   CloseCandidates();
   if (composition_) {
     ComPtr<ITfRange> range;
@@ -204,8 +218,10 @@ void TextService::ResetState() {
   ApplyUserDictionary();
 }
 
-STDMETHODIMP TextService::OnCompositionTerminated(TfEditCookie, ITfComposition*) {
-  // The app ended the composition (e.g. focus moved); its text stays in the document.
+STDMETHODIMP TextService::OnCompositionTerminated(TfEditCookie, ITfComposition* composition) {
+  // The app ended the composition (e.g. focus moved); its text stays in the document. A
+  // composition we already dropped may report late; it must not end the current one.
+  if (composition && composition_ && composition != composition_.Get()) return S_OK;
   LearnFromCommit(composer_.size());
   ResetState();
   return S_OK;

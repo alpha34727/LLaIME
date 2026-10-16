@@ -183,9 +183,16 @@ void TextService::OnRankResponse(const protocol::RankResponse& response) {
   // Leave an open candidate list alone; the new conversion shows once it closes.
   if (CandidatesOpen() || !compositionContext_) return;
   ComPtr<ITfContext> context = compositionContext_;
+  ComPtr<ITfComposition> composition = composition_;
+  ComPtr<TextService> self(this);
   EditSession::Request(context.Get(), clientId_, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE,
-                       [this, context](TfEditCookie ec) {
-                         UpdateComposition(context.Get(), ec);
+                       [self, context, composition](TfEditCookie ec) {
+                         // Granted later: only if that composition is still ours, and
+                         // never to start a new one.
+                         if (self->composition_ == composition && composition &&
+                             self->compositionContext_ == context) {
+                           self->UpdateComposition(context.Get(), ec);
+                         }
                          return S_OK;
                        });
 }

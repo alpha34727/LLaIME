@@ -86,3 +86,5 @@ target_link_libraries(LLaIME.PrivacyTest PRIVATE LLaIME.UserStore LLaIME.Common)
 # End-to-end test of turning a lexicon layer off in the installed IME.
 add_executable(LLaIME.LexiconTest tools/LexiconTest.cpp)
 target_link_libraries(LLaIME.LexiconTest PRIVATE LLaIME.Core)
+# Types into another program (e.g. Word) with saves mid-composition; checks it survives.
+add_executable(LLaIME.TypeTest tools/TypeTest.cpp)
