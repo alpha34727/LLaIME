@@ -1,5 +1,7 @@
 #pragma once
-#include <d2d1.h>
+#include <d2d1_1.h>
+#include <dcomp.h>
+#include <dxgi1_2.h>
 #include <dwrite.h>
 #include <windows.h>
 #include <wrl/client.h>
@@ -116,7 +118,18 @@ class CandidateWindow {
   float heightDip_ = 0;
   RECT anchor_{};
 
-  Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> target_;
+  // Drawn through an HWND render target, or, for a window in the input band (which has no
+  // redirection surface), a composition swap chain (see EnsureDeviceResources).
+  Microsoft::WRL::ComPtr<ID2D1RenderTarget> target_;
+  Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> hwndTarget_;
+  bool composited_ = false;
+  Microsoft::WRL::ComPtr<IDXGISwapChain1> swapChain_;
+  Microsoft::WRL::ComPtr<ID2D1DeviceContext> deviceContext_;
+  Microsoft::WRL::ComPtr<IDCompositionDevice> dcomp_;
+  Microsoft::WRL::ComPtr<IDCompositionTarget> dcompTarget_;
+  Microsoft::WRL::ComPtr<IDCompositionVisual> dcompVisual_;
+  bool CreateCompositionTarget(UINT width, UINT height);
+  bool BindSwapChainBuffer();
   Microsoft::WRL::ComPtr<IDWriteTextFormat> textFormat_;
   Microsoft::WRL::ComPtr<IDWriteTextFormat> numberFormat_;
   Microsoft::WRL::ComPtr<IDWriteTextFormat> iconFormat_;

@@ -1,5 +1,7 @@
 #include "ui/CandidateWindow.h"
 
+#include <d3d11.h>
+
 #include <shellscalingapi.h>
 #include <windowsx.h>
 
@@ -85,8 +87,24 @@ bool CandidateWindow::EnsureWindow() {
   // Per-monitor aware regardless of the host app, so text stays crisp at any scale.
   DPI_AWARENESS_CONTEXT old =
       SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-  hwnd_ = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE, kClassName, L"",
-                          WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, g_hInst, nullptr);
+  // Apps in their own container (Windows Search, Sticky Notes) cloak top-level windows made
+  // the usual way; the input band is where the system lets an IME's windows show there. A
+  // window there shows only composition content, so it is drawn through DirectComposition.
+  using CreateWindowInBandFn = HWND(WINAPI*)(DWORD, LPCWSTR, LPCWSTR, DWORD, int, int, int, int,
+                                              HWND, HMENU, HINSTANCE, LPVOID, DWORD);
+  static const auto createInBand = reinterpret_cast<CreateWindowInBandFn>(
+      GetProcAddress(GetModuleHandleW(L"user32.dll"), "CreateWindowInBand"));
+  constexpr DWORD kBandImmersiveIhm = 3;
+  if (createInBand && IsImmersiveProcess(GetCurrentProcess())) {
+    hwnd_ = createInBand(WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE, kClassName, L"",
+                         WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, g_hInst, nullptr,
+                         kBandImmersiveIhm);
+    composited_ = hwnd_ != nullptr;
+  }
+  if (!hwnd_) {
+    hwnd_ = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE, kClassName, L"",
+                            WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, g_hInst, nullptr);
+  }
   if (old) SetThreadDpiAwarenessContext(old);
   if (!hwnd_) return false;
   SetWindowLongPtrW(hwnd_, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
@@ -127,16 +145,23 @@ bool CandidateWindow::EnsureDeviceResources() {
   if (!target_) {
     RECT rc;
     GetClientRect(hwnd_, &rc);
-    auto props = D2D1::RenderTargetProperties(
-        D2D1_RENDER_TARGET_TYPE_DEFAULT,
-        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
-        static_cast<float>(dpi_), static_cast<float>(dpi_));
-    if (FAILED(D2DFactory()->CreateHwndRenderTarget(
-            props,
-            D2D1::HwndRenderTargetProperties(hwnd_, D2D1::SizeU(rc.right - rc.left,
-                                                                rc.bottom - rc.top)),
-            &target_))) {
-      return false;
+    const UINT w = static_cast<UINT>(std::max<LONG>(1, rc.right - rc.left));
+    const UINT h = static_cast<UINT>(std::max<LONG>(1, rc.bottom - rc.top));
+    if (composited_) {
+      if (!CreateCompositionTarget(w, h)) {
+        DiscardDeviceResources();
+        return false;
+      }
+    } else {
+      auto props = D2D1::RenderTargetProperties(
+          D2D1_RENDER_TARGET_TYPE_DEFAULT,
+          D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
+          static_cast<float>(dpi_), static_cast<float>(dpi_));
+      if (FAILED(D2DFactory()->CreateHwndRenderTarget(
+              props, D2D1::HwndRenderTargetProperties(hwnd_, D2D1::SizeU(w, h)), &hwndTarget_))) {
+        return false;
+      }
+      target_ = hwndTarget_;
     }
     target_->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
   }
@@ -144,7 +169,75 @@ bool CandidateWindow::EnsureDeviceResources() {
   return true;
 }
 
-void CandidateWindow::DiscardDeviceResources() { target_.Reset(); }
+void CandidateWindow::DiscardDeviceResources() {
+  target_.Reset();
+  hwndTarget_.Reset();
+  deviceContext_.Reset();
+  swapChain_.Reset();
+  dcompVisual_.Reset();
+  dcompTarget_.Reset();
+  dcomp_.Reset();
+}
+
+bool CandidateWindow::CreateCompositionTarget(UINT width, UINT height) {
+  ComPtr<ID3D11Device> d3d;
+  const UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
+  if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, flags, nullptr, 0,
+                               D3D11_SDK_VERSION, &d3d, nullptr, nullptr)) &&
+      FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, flags, nullptr, 0,
+                               D3D11_SDK_VERSION, &d3d, nullptr, nullptr))) {
+    return false;
+  }
+  ComPtr<IDXGIDevice> dxgiDevice;
+  ComPtr<IDXGIFactory2> dxgiFactory;
+  ComPtr<ID2D1Factory1> d2dFactory;
+  ComPtr<ID2D1Device> d2dDevice;
+  if (FAILED(d3d.As(&dxgiDevice)) ||
+      FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&dxgiFactory))) ||
+      FAILED(D2DFactory()->QueryInterface(IID_PPV_ARGS(&d2dFactory))) ||
+      FAILED(d2dFactory->CreateDevice(dxgiDevice.Get(), &d2dDevice)) ||
+      FAILED(d2dDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &deviceContext_))) {
+    return false;
+  }
+  DXGI_SWAP_CHAIN_DESC1 desc{};
+  desc.Width = width;
+  desc.Height = height;
+  desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+  desc.SampleDesc.Count = 1;
+  desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+  desc.BufferCount = 2;
+  desc.Scaling = DXGI_SCALING_STRETCH;
+  desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+  desc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
+  if (FAILED(dxgiFactory->CreateSwapChainForComposition(dxgiDevice.Get(), &desc, nullptr,
+                                                        &swapChain_)) ||
+      !BindSwapChainBuffer() ||
+      FAILED(DCompositionCreateDevice(dxgiDevice.Get(), IID_PPV_ARGS(&dcomp_))) ||
+      FAILED(dcomp_->CreateTargetForHwnd(hwnd_, TRUE, &dcompTarget_)) ||
+      FAILED(dcomp_->CreateVisual(&dcompVisual_)) ||
+      FAILED(dcompVisual_->SetContent(swapChain_.Get())) ||
+      FAILED(dcompTarget_->SetRoot(dcompVisual_.Get())) || FAILED(dcomp_->Commit())) {
+    return false;
+  }
+  target_ = deviceContext_;
+  return true;
+}
+
+// Points the device context at the swap chain's back buffer (again after a resize).
+bool CandidateWindow::BindSwapChainBuffer() {
+  ComPtr<IDXGISurface> surface;
+  ComPtr<ID2D1Bitmap1> bitmap;
+  const auto props = D2D1::BitmapProperties1(
+      D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+      D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
+      static_cast<float>(dpi_), static_cast<float>(dpi_));
+  if (FAILED(swapChain_->GetBuffer(0, IID_PPV_ARGS(&surface))) ||
+      FAILED(deviceContext_->CreateBitmapFromDxgiSurface(surface.Get(), &props, &bitmap))) {
+    return false;
+  }
+  deviceContext_->SetTarget(bitmap.Get());
+  return true;
+}
 
 void CandidateWindow::Show(std::vector<std::wstring> items, const RECT& anchor,
                            bool withProbabilities) {
@@ -251,7 +344,14 @@ void CandidateWindow::UpdateLayout(const RECT& anchor) {
   y = std::max(y, static_cast<int>(work.top));
 
   SetWindowPos(hwnd_, HWND_TOPMOST, x, y, w, h, SWP_NOACTIVATE);
-  if (target_) target_->Resize(D2D1::SizeU(w, h));
+  if (hwndTarget_) hwndTarget_->Resize(D2D1::SizeU(w, h));
+  if (swapChain_) {
+    deviceContext_->SetTarget(nullptr);
+    if (FAILED(swapChain_->ResizeBuffers(0, w, h, DXGI_FORMAT_UNKNOWN, 0)) ||
+        !BindSwapChainBuffer()) {
+      DiscardDeviceResources();
+    }
+  }
 }
 
 void CandidateWindow::MoveSelection(int delta) {
@@ -423,7 +523,13 @@ void CandidateWindow::Paint() {
   }
 
   PaintFooter(brush.Get(), size.width, size.height);
-  if (target_->EndDraw() == D2DERR_RECREATE_TARGET) DiscardDeviceResources();
+  const HRESULT hr = target_->EndDraw();
+  if (hr == D2DERR_RECREATE_TARGET) {
+    DiscardDeviceResources();
+  } else if (swapChain_ && SUCCEEDED(hr) &&
+             swapChain_->Present(1, 0) == DXGI_ERROR_DEVICE_REMOVED) {
+    DiscardDeviceResources();
+  }
 }
 
 void CandidateWindow::PaintProbability(ID2D1SolidColorBrush* brush, size_t index, float textX,
