@@ -48,6 +48,8 @@ STDMETHODIMP TextService::QueryInterface(REFIID riid, void** ppv) {
       *ppv = static_cast<ITfDisplayAttributeProvider*>(this);
     } else if (riid == IID_ITfCompartmentEventSink) {
       *ppv = static_cast<ITfCompartmentEventSink*>(this);
+    } else if (riid == IID_ITfUIElement || riid == IID_ITfCandidateListUIElement) {
+      *ppv = static_cast<ITfCandidateListUIElement*>(this);
     } else if (riid == IID_ITfKeyTraceEventSink) {
       *ppv = static_cast<ITfKeyTraceEventSink*>(this);
     } else {

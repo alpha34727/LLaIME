@@ -68,7 +68,8 @@ class TextService final : public ITfTextInputProcessorEx,
                           public ITfCompositionSink,
                           public ITfDisplayAttributeProvider,
                           public ITfCompartmentEventSink,
-                          public ITfKeyTraceEventSink {
+                          public ITfKeyTraceEventSink,
+                          public ITfCandidateListUIElement {
  public:
   TextService();
 
@@ -107,6 +108,21 @@ class TextService final : public ITfTextInputProcessorEx,
 
   // ITfCompartmentEventSink (InputMode.cpp)
   STDMETHODIMP OnChange(REFGUID guid) override;
+
+  // ITfCandidateListUIElement (CandidateUi.cpp): lets apps that draw the candidates
+  // themselves (Windows Search, Sticky Notes) show them.
+  STDMETHODIMP GetDescription(BSTR* description) override;
+  STDMETHODIMP GetGUID(GUID* guid) override;
+  STDMETHODIMP Show(BOOL show) override;
+  STDMETHODIMP IsShown(BOOL* shown) override;
+  STDMETHODIMP GetUpdatedFlags(DWORD* flags) override;
+  STDMETHODIMP GetDocumentMgr(ITfDocumentMgr** docMgr) override;
+  STDMETHODIMP GetCount(UINT* count) override;
+  STDMETHODIMP GetSelection(UINT* index) override;
+  STDMETHODIMP GetString(UINT index, BSTR* text) override;
+  STDMETHODIMP GetPageIndex(UINT* index, UINT size, UINT* pageCount) override;
+  STDMETHODIMP SetPageIndex(UINT* index, UINT pageCount) override;
+  STDMETHODIMP GetCurrentPage(UINT* page) override;
 
   // ITfKeyTraceEventSink (BypassedKeys.cpp)
   STDMETHODIMP OnKeyTraceDown(WPARAM wParam, LPARAM lParam) override;
@@ -209,6 +225,12 @@ class TextService final : public ITfTextInputProcessorEx,
   // Commits the composition and opens the Windows emoji panel (the footer emoji button).
   void OpenEmojiPanel();
   bool CandidatesOpen() const;
+  // CandidateUi.cpp: tells the app about the candidate list (begin, change, end).
+  void BeginCandidateUi();
+  void UpdateCandidateUi();
+  void EndCandidateUi();
+  DWORD candidateUiId_ = 0;
+  bool candidateUiActive_ = false;
 
   LONG refCount_ = 1;
   Microsoft::WRL::ComPtr<ITfThreadMgr> threadMgr_;

@@ -113,14 +113,16 @@ int wmain() {
     bool typed = false;
   };
   std::vector<Case> cases = {
-      // mk is also the start of mkk: Enter takes mk.
+      // Space turns the keys into the phrase (underlined, as converted text); Enter commits.
+      {L"` p m k Space Enter", {grave, 'P', 'M', 'K', VK_SPACE, VK_RETURN}, L"「」"},
+      // Enter on the keys does both.
       {L"` p m k Enter", {grave, 'P', 'M', 'K', VK_RETURN}, L"「」"},
-      // mkk is no other shortcut's start: it commits by itself.
-      {L"` p m k k", {grave, 'P', 'M', 'K', 'K'}, L"『』"},
+      {L"` p m k k Space Enter", {grave, 'P', 'M', 'K', 'K', VK_SPACE, VK_RETURN}, L"『』"},
       // In the middle of a composition: 我 (ㄨㄛˇ), then the shortcut, then Enter.
-      {L"ㄨㄛˇ ` p m k k Enter", {'J', 'I', '3', grave, 'P', 'M', 'K', 'K', VK_RETURN}, L"我『』"},
+      {L"ㄨㄛˇ ` p m k k Space Enter",
+       {'J', 'I', '3', grave, 'P', 'M', 'K', 'K', VK_SPACE, VK_RETURN}, L"我『』"},
       // A key no shortcut has beeps and is ignored; Esc leaves shortcut mode and drops the `.
-      {L"` p z m k k", {grave, 'P', 'Z', 'M', 'K', 'K'}, L"『』"},
+      {L"` p z m k Space Enter", {grave, 'P', 'Z', 'M', 'K', VK_SPACE, VK_RETURN}, L"「」"},
       {L"` p m Esc", {grave, 'P', 'M', VK_ESCAPE}, L""},
       // Backspace out of shortcut mode leaves the ` itself.
       {L"` p Back Enter", {grave, 'P', VK_BACK, VK_RETURN}, L"`"},

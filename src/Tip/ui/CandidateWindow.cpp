@@ -148,8 +148,15 @@ void CandidateWindow::DiscardDeviceResources() { target_.Reset(); }
 
 void CandidateWindow::Show(std::vector<std::wstring> items, const RECT& anchor,
                            bool withProbabilities) {
-  if (items.empty() || !EnsureWindow()) {
+  if (items.empty() || (!uiless_ && !EnsureWindow())) {
     Hide();
+    return;
+  }
+  if (uiless_) {
+    items_ = std::move(items);
+    probabilities_.clear();
+    selection_ = 0;
+    expanded_ = false;
     return;
   }
   items_ = std::move(items);
@@ -162,7 +169,11 @@ void CandidateWindow::Show(std::vector<std::wstring> items, const RECT& anchor,
   ApplyPopupChrome(hwnd_, theme_.dark);
   UpdateLayout(anchor);
   ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
-  InvalidateRect(hwnd_, nullptr, FALSE);
+  Invalidate();
+}
+
+void CandidateWindow::Invalidate() {
+  if (hwnd_ && !uiless_) InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 void CandidateWindow::Hide() {
@@ -186,16 +197,16 @@ void CandidateWindow::SetProbabilities(std::vector<double> probabilities,
     hoverItem_ = -1;
   }
   probabilities_ = std::move(probabilities);
-  InvalidateRect(hwnd_, nullptr, FALSE);
+  Invalidate();
 }
 
 void CandidateWindow::SetExpanded(bool expanded) {
-  if (expanded_ == expanded) return;
+  if (expanded_ == expanded || uiless_) return;
   expanded_ = expanded;
   hoverItem_ = -1;
   if (!items_.empty()) {
     UpdateLayout(anchor_);
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    Invalidate();
   }
 }
 
@@ -247,7 +258,7 @@ void CandidateWindow::MoveSelection(int delta) {
   if (items_.empty()) return;
   long long next = static_cast<long long>(selection_) + delta;
   selection_ = static_cast<size_t>(std::clamp<long long>(next, 0, items_.size() - 1));
-  InvalidateRect(hwnd_, nullptr, FALSE);
+  Invalidate();
 }
 
 void CandidateWindow::MoveColumn(int delta) {
@@ -291,7 +302,7 @@ void CandidateWindow::MoveColumn(int delta) {
     // first column of the first.
     selection_ = cell(page + 1 < PageCount() ? page + 1 : 0, 0);
   }
-  InvalidateRect(hwnd_, nullptr, FALSE);
+  Invalidate();
 }
 
 void CandidateWindow::MovePage(int delta) {
@@ -299,7 +310,7 @@ void CandidateWindow::MovePage(int delta) {
   long long page = static_cast<long long>(selection_ / PageSize()) + delta;
   page = std::clamp<long long>(page, 0, static_cast<long long>(PageCount()) - 1);
   selection_ = static_cast<size_t>(page) * PageSize();
-  InvalidateRect(hwnd_, nullptr, FALSE);
+  Invalidate();
 }
 
 std::optional<size_t> CandidateWindow::IndexForDigit(int digit) const {
@@ -546,7 +557,7 @@ LRESULT CandidateWindow::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
       if (item != hoverItem_ || button != hoverButton_) {
         hoverItem_ = item;
         hoverButton_ = button;
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        Invalidate();
         TRACKMOUSEEVENT tme{sizeof(tme), TME_LEAVE, hwnd_, 0};
         TrackMouseEvent(&tme);
       }
@@ -555,7 +566,7 @@ LRESULT CandidateWindow::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
     case WM_MOUSELEAVE:
       hoverItem_ = -1;
       hoverButton_ = FooterButton::None;
-      InvalidateRect(hwnd_, nullptr, FALSE);
+      Invalidate();
       return 0;
     case WM_LBUTTONUP: {
       POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};

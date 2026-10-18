@@ -149,7 +149,7 @@ public sealed partial class UserDictPage : Page
             hint.Text = text.Text.Trim().Length == 0 ? ""
                 : !keysOk ? "快捷鍵只能用英文字母與數字。"
                 : ReadingText().Length == 0 && keys.Length == 0 ? "詞庫裡找不到這些字的讀音，請自行輸入注音，或只指定快捷鍵（例如符號「」）。"
-                : ReadingText().Length == 0 ? $"沒有注音：只能用快捷鍵 ` p {keys} 輸入。"
+                : ReadingText().Length == 0 ? $"沒有注音：只能用快捷鍵 ` p {keys} 空白 輸入。"
                 : !readingOk ? "注音的音節數要和字數相同，例如「ㄨㄟˋ ㄓㄜˊ ㄐㄧㄚ」。"
                 : keys.Length > 0 ? $"也可以依序按 `、p、{string.Join("、", keys.ToCharArray())} 輸入。"
                 : reading.Items.Count > 1 ? "有多種讀音，可從清單中選擇。" : "";

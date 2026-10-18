@@ -17,6 +17,7 @@ add_library(LLaIME.Tip SHARED
   ClassFactory.cpp
   Register.cpp
   TextService.cpp
+  CandidateUi.cpp
   KeyEventSink.cpp
   KeyMapping.cpp
   InputMode.cpp

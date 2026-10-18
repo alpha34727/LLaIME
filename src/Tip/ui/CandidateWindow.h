@@ -47,7 +47,12 @@ class CandidateWindow {
   // its item; the default first-row selection stays on the first row.
   void SetProbabilities(std::vector<double> probabilities, const std::vector<size_t>& order = {});
   void Hide();
-  bool IsVisible() const { return hwnd_ && IsWindowVisible(hwnd_); }
+  bool IsVisible() const { return uiless_ ? !items_.empty() : hwnd_ && IsWindowVisible(hwnd_); }
+  // UI-less: the app draws the candidates itself (Windows Search, Sticky Notes), so this only
+  // keeps the list and the selection. Set before Show.
+  void SetUiLess(bool uiless) { uiless_ = uiless; }
+  bool UiLess() const { return uiless_; }
+  const std::wstring& Item(size_t index) const { return items_[index]; }
 
   size_t Selection() const { return selection_; }
   size_t Count() const { return items_.size(); }
@@ -70,6 +75,7 @@ class CandidateWindow {
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
   LRESULT HandleMessage(UINT msg, WPARAM wp, LPARAM lp);
 
+  void Invalidate();
   bool EnsureWindow();
   bool EnsureDeviceResources();
   void DiscardDeviceResources();
@@ -101,6 +107,7 @@ class CandidateWindow {
   bool withProbabilities_ = false;
   size_t selection_ = 0;
   bool expanded_ = false;
+  bool uiless_ = false;
   int hoverItem_ = -1;
   FooterButton hoverButton_ = FooterButton::None;
   float firstColumnWidth_ = 0;  // DIPs; includes the number column

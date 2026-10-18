@@ -69,11 +69,22 @@ public sealed partial class ModelPage : Page
     private static long downloadDone_;
     private static string? downloadError_;
     private static event Action? DownloadChanged;
+    // Progress only touches the busy card in place; rebuilding the list on every update made
+    // the page jump around.
+    private static event Action? DownloadProgressed;
+    private SettingsCard? busyCard_;
+    private ProgressBar? busyBar_;
+    private string busyHead_ = "";
+    private CatalogModel? busyModel_;
 
     private void ShowDownloads()
     {
         DownloadChanged -= OnDownloadChanged;
         DownloadChanged += OnDownloadChanged;
+        DownloadProgressed -= OnDownloadProgressed;
+        DownloadProgressed += OnDownloadProgressed;
+        busyCard_ = null;
+        busyBar_ = null;
         DownloadList.Children.Clear();
         var catalog = ModelCatalog.Load();
         if (catalog.Count == 0)
@@ -86,6 +97,16 @@ public sealed partial class ModelPage : Page
 
     private void OnDownloadChanged() => DispatcherQueue.TryEnqueue(ShowDownloads);
 
+    private void OnDownloadProgressed() => DispatcherQueue.TryEnqueue(() =>
+    {
+        if (busyCard_ == null || busyBar_ == null || busyModel_ == null) return;
+        busyBar_.Value = downloadDone_;
+        busyCard_.Description = busyHead_ + DownloadingStatus(busyModel_);
+    });
+
+    private static string DownloadingStatus(CatalogModel model) =>
+        $"下載中 {downloadDone_ * 100.0 / model.Size:0}%（{Gb(downloadDone_)} / {Gb(model.Size)}）";
+
     private static string Gb(long bytes) => $"{bytes / 1e9:0.0} GB";
 
     private SettingsCard DownloadCard(CatalogModel model)
@@ -95,7 +116,7 @@ public sealed partial class ModelPage : Page
                                   StringComparison.OrdinalIgnoreCase);
         var busy = downloading_?.Id == model.Id;
         var status = !model.Published ? "尚未發布"
-            : busy ? $"下載中 {downloadDone_ * 100.0 / model.Size:0}%（{Gb(downloadDone_)} / {Gb(model.Size)}）"
+            : busy ? DownloadingStatus(model)
             : model.Downloaded ? (inUse ? "已下載 · 使用中" : "已下載")
             : downloadError_ != null && downloading_ == null && lastFailed_ == model.Id ? $"下載失敗：{downloadError_}"
             : $"{Gb(model.Size)}";
@@ -109,11 +130,16 @@ public sealed partial class ModelPage : Page
         var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         if (busy)
         {
-            panel.Children.Add(new ProgressBar
+            var bar = new ProgressBar
             {
                 Width = 160, Minimum = 0, Maximum = model.Size, Value = downloadDone_,
                 VerticalAlignment = VerticalAlignment.Center,
-            });
+            };
+            panel.Children.Add(bar);
+            busyCard_ = card;
+            busyBar_ = bar;
+            busyModel_ = model;
+            busyHead_ = $"{model.Description}\n";
             var cancel = new Button { Content = "取消" };
             cancel.Click += (_, _) => downloadCancel_?.Cancel();
             panel.Children.Add(cancel);
@@ -230,7 +256,7 @@ public sealed partial class ModelPage : Page
         var progress = new Progress<long>(done =>
         {
             downloadDone_ = done;
-            DownloadChanged?.Invoke();
+            DownloadProgressed?.Invoke();
         });
         var ok = false;
         try

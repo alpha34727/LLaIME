@@ -274,7 +274,14 @@ void TextService::OpenCandidates(ITfContext* context, TfEditCookie ec) {
       rc = {pt.x, pt.y, pt.x, pt.y};
     }
   }
-  candidateWindow_->Show(std::move(items), rc, RequestCandidateProbabilities());
+  // Keep the list first (an app may ask for it while it is told about the list), then let the
+  // app say whether it draws the candidates itself.
+  EndCandidateUi();
+  const bool withProbabilities = RequestCandidateProbabilities();
+  candidateWindow_->SetUiLess(true);
+  candidateWindow_->Show(items, rc, false);
+  BeginCandidateUi();
+  if (!candidateWindow_->UiLess()) candidateWindow_->Show(std::move(items), rc, withProbabilities);
 }
 
 void TextService::SelectCandidate(ITfContext* context, TfEditCookie ec, size_t index) {
@@ -309,6 +316,7 @@ void TextService::OpenEmojiPanel() {
 }
 
 void TextService::CloseCandidates() {
+  EndCandidateUi();
   if (candidateWindow_) candidateWindow_->Hide();
   candidates_.clear();
   candidateRequestId_ = 0;

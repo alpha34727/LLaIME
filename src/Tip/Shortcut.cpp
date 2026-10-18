@@ -1,9 +1,9 @@
 // User phrase shortcuts, as in Microsoft Bopomofo: typing ` then p enters shortcut mode, and
 // the keys that follow pick a phrase from the user dictionary (` p m k -> 「」, if "mk" was
-// given to 「」 in the settings). The keys show underlined after the ` like a reading. As soon
-// as the keys name a phrase and no longer shortcut starts with them, the phrase replaces the
-// ` (and is committed if nothing else was being composed); Enter or Space takes an exact match
-// when a longer shortcut also exists. A key that matches no shortcut beeps and is ignored.
+// given to 「」 in the settings). The keys show underlined after the ` like a reading. Space
+// replaces the ` and the keys with the phrase, still underlined like any converted text, and
+// Enter commits it; Enter on the keys does both. A key that matches no shortcut beeps and is
+// ignored.
 #include "KeyMapping.h"
 #include "TextService.h"
 
@@ -42,20 +42,20 @@ KeyAction TextService::ClassifyShortcutKey(WPARAM vk) const {
   }
   switch (vk) {
     case VK_BACK: return Make(Type::ShortcutBackspace);
-    case VK_RETURN: case VK_SPACE: return Make(Type::ShortcutAccept);
+    case VK_RETURN: return Make(Type::ShortcutAccept, static_cast<wchar_t>(13));  // and commit
+    case VK_SPACE: return Make(Type::ShortcutAccept);
     case VK_ESCAPE: return Make(Type::ShortcutCancel);
     default: return Make(Type::ShortcutReject);
   }
 }
 
 void TextService::HandleShortcut(ITfContext* context, TfEditCookie ec, const KeyAction& action) {
-  auto apply = [&](const std::wstring& text) {
+  auto apply = [&](const std::wstring& text, bool commit) {
     shortcutMode_ = false;
     shortcutKeys_.clear();
     composer_.DeleteBefore();  // the `
-    const bool alone = composer_.empty();
     composer_.InsertLiteral(text);
-    if (alone) {
+    if (commit) {
       CommitAll(context, ec);
     } else {
       UpdateComposition(context, ec);
@@ -74,10 +74,6 @@ void TextService::HandleShortcut(ITfContext* context, TfEditCookie ec, const Key
         break;
       }
       shortcutKeys_ = keys;
-      if (match.text && !match.longer) {
-        apply(*match.text);
-        return;
-      }
       break;
     }
     case Type::ShortcutBackspace:
@@ -91,7 +87,7 @@ void TextService::HandleShortcut(ITfContext* context, TfEditCookie ec, const Key
       const auto match = userDict_ ? userDict_->MatchShortcut(shortcutKeys_)
                                    : UserDictionary::ShortcutMatch{};
       if (!shortcutKeys_.empty() && match.text) {
-        apply(*match.text);
+        apply(*match.text, action.ch == 13);
         return;
       }
       MessageBeep(MB_OK);

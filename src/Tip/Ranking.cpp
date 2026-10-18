@@ -155,6 +155,7 @@ void TextService::OnCandidateProbabilities(const protocol::RankResponse& respons
   candidateSentenceIndex_ = std::move(sentenceIndex);
   candidateRequestId_ = 0;  // applied once
   candidateWindow_->SetProbabilities(std::move(reordered), order);
+  UpdateCandidateUi();
 }
 
 void TextService::OnRankResponse(const protocol::RankResponse& response) {

@@ -82,20 +82,23 @@ KeyAction TextService::ClassifyKey(WPARAM vk) const {
   const Modifiers mods = Modifiers::Current();
   if (vk == VK_SPACE && mods.shift && !mods.ctrl && !mods.alt) return Make(Type::ToggleShape);
 
-  if (!chineseMode_) {
-    // English mode intercepts Ctrl punctuation, and printable keys when typing full-width.
+  const bool composing = IsComposing();
+  if (!chineseMode_ && !composing) {
+    // English mode takes Ctrl punctuation (shown underlined until Enter, as in Chinese mode),
+    // and printable keys when typing full-width. Once something is being composed, the keys
+    // below apply.
     if (mods.alt) return Make(Type::PassThrough);
     if (mods.ctrl) {
       std::wstring punct = CtrlPunctuation(UsCharFromVirtualKey(vk, false), mods.shift);
-      return punct.empty() ? Make(Type::PassThrough) : MakeInsert(punct);
+      return punct.empty() ? Make(Type::PassThrough) : MakeLiteral(punct);
     }
     if (!fullShape_) return Make(Type::PassThrough);
     wchar_t ch = UsCharFromVirtualKey(vk, mods.shift);
-    return ch ? MakeInsert(ToFullWidth(ch)) : Make(Type::PassThrough);
+    if (!ch) return Make(Type::PassThrough);
+    return iswpunct(ch) ? MakeLiteral(ToFullWidth(ch)) : MakeInsert(ToFullWidth(ch));
   }
 
   if (shortcutMode_) return ClassifyShortcutKey(vk);
-  const bool composing = IsComposing();
   if (mods.alt) return Make(Type::PassThrough);
   if (mods.ctrl) {
     std::wstring punct = CtrlPunctuation(UsCharFromVirtualKey(vk, false), mods.shift);
@@ -133,7 +136,7 @@ KeyAction TextService::ClassifyKey(WPARAM vk) const {
   }
 
   // ` then p: a user phrase shortcut follows.
-  if (vk == 'P' && !mods.shift && AtShortcutTrigger()) return Make(Type::ShortcutStart);
+  if (chineseMode_ && vk == 'P' && !mods.shift && AtShortcutTrigger()) return Make(Type::ShortcutStart);
 
   // Caps Lock types English letters: upper case, or lower case with Shift.
   const bool capsLock = (GetKeyState(VK_CAPITAL) & 1) != 0;
@@ -144,11 +147,11 @@ KeyAction TextService::ClassifyKey(WPARAM vk) const {
   const wchar_t ch = UsCharFromVirtualKey(vk, mods.shift);
   if (ch && !mods.shift) {
     if (ch == L' ' && reading_.Empty()) return typeChar(L' ');
-    if (reading_.IsToneKey(ch) && reading_.Empty()) {
+    if (chineseMode_ && reading_.IsToneKey(ch) && reading_.Empty()) {
       // A tone with nothing to apply to: type the digit unless we are composing.
       return composing ? Make(Type::Swallow) : Make(Type::PassThrough);
     }
-    if (reading_.IsLayoutKey(ch)) {
+    if (chineseMode_ && reading_.IsLayoutKey(ch)) {
       KeyAction a = Make(Type::Reading);
       a.ch = ch;
       return a;
@@ -266,21 +269,27 @@ void TextService::HandleAction(ITfContext* context, TfEditCookie ec, const KeyAc
       return;
     case Type::CandidateUp:
       candidateWindow_->MoveSelection(-1);
+      UpdateCandidateUi();
       return;
     case Type::CandidateDown:
       candidateWindow_->MoveSelection(1);
+      UpdateCandidateUi();
       return;
     case Type::CandidatePageUp:
       candidateWindow_->MovePage(-1);
+      UpdateCandidateUi();
       return;
     case Type::CandidatePageDown:
       candidateWindow_->MovePage(1);
+      UpdateCandidateUi();
       return;
     case Type::CandidateLeft:
       candidateWindow_->MoveColumn(-1);
+      UpdateCandidateUi();
       return;
     case Type::CandidateRight:
       candidateWindow_->MoveColumn(1);
+      UpdateCandidateUi();
       return;
     case Type::CandidateToggleExpanded:
       candidateWindow_->SetExpanded(!candidateWindow_->Expanded());
@@ -346,7 +355,7 @@ STDMETHODIMP TextService::OnKeyUp(ITfContext* context, WPARAM wParam, LPARAM, BO
     if (wParam != VK_SHIFT || !shiftAlone_) return S_OK;
     shiftAlone_ = false;
     *eaten = TRUE;
-    if (chineseMode_ && IsComposing() && context) {
+    if (IsComposing() && context) {
       ComPtr<ITfContext> ctx(context);
       EditSession::Request(context, clientId_, TF_ES_SYNC | TF_ES_READWRITE,
                            [this, ctx](TfEditCookie ec) {
