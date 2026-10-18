@@ -186,6 +186,8 @@ HRESULT TextService::ExecuteKeyAction(ITfContext* context, const KeyAction& acti
                               [this, ctx, action](TfEditCookie ec) {
                                 // A key in another context than the composition's starts over.
                                 CompositionUsable(ctx.Get());
+                                // A key the app kept to itself just before (BypassedKeys.cpp).
+                                ApplyBypassedKey(ctx.Get(), ec, true);
                                 HandleAction(ctx.Get(), ec, action);
                                 return S_OK;
                               });
@@ -313,6 +315,7 @@ STDMETHODIMP TextService::OnSetFocus(BOOL) { return S_OK; }
 STDMETHODIMP TextService::OnTestKeyDown(ITfContext*, WPARAM wParam, LPARAM, BOOL* eaten) {
   return Guarded("OnTestKeyDown", HRESULT(E_FAIL), [&]() -> HRESULT {
     shiftAlone_ = wParam == VK_SHIFT;
+    NoteKeyOffered(wParam);
     *eaten = ClassifyKey(wParam).type != Type::PassThrough;
     return S_OK;
   });
@@ -321,6 +324,7 @@ STDMETHODIMP TextService::OnTestKeyDown(ITfContext*, WPARAM wParam, LPARAM, BOOL
 STDMETHODIMP TextService::OnKeyDown(ITfContext* context, WPARAM wParam, LPARAM, BOOL* eaten) {
   return Guarded("OnKeyDown", HRESULT(E_FAIL), [&]() -> HRESULT {
     shiftAlone_ = wParam == VK_SHIFT;
+    NoteKeyOffered(wParam);
     KeyAction action = ClassifyKey(wParam);
     *eaten = action.type != Type::PassThrough;
     if (*eaten) ExecuteKeyAction(context, action);

@@ -29,6 +29,7 @@ add_library(LLaIME.Tip SHARED
   UserDict.cpp
   Lexicons.cpp
   Shortcut.cpp
+  BypassedKeys.cpp
   Tip.def
   Tip.rc
 )

@@ -67,7 +67,8 @@ class TextService final : public ITfTextInputProcessorEx,
                           public ITfKeyEventSink,
                           public ITfCompositionSink,
                           public ITfDisplayAttributeProvider,
-                          public ITfCompartmentEventSink {
+                          public ITfCompartmentEventSink,
+                          public ITfKeyTraceEventSink {
  public:
   TextService();
 
@@ -107,6 +108,10 @@ class TextService final : public ITfTextInputProcessorEx,
   // ITfCompartmentEventSink (InputMode.cpp)
   STDMETHODIMP OnChange(REFGUID guid) override;
 
+  // ITfKeyTraceEventSink (BypassedKeys.cpp)
+  STDMETHODIMP OnKeyTraceDown(WPARAM wParam, LPARAM lParam) override;
+  STDMETHODIMP OnKeyTraceUp(WPARAM wParam, LPARAM lParam) override;
+
  private:
   ~TextService();
 
@@ -114,6 +119,16 @@ class TextService final : public ITfTextInputProcessorEx,
   void UninitThreadMgrEventSink();
   bool InitKeyEventSink();
   void UninitKeyEventSink();
+
+  // Keys the app handled without offering them to the IME (BypassedKeys.cpp).
+  bool InitKeyTrace();
+  void UninitKeyTrace();
+  void NoteKeyOffered(WPARAM vk);
+  void DoBypassedKey();
+  void ApplyBypassedKey(ITfContext* context, TfEditCookie ec, bool last);
+  static constexpr int kBypassedAttempts = 5;
+  static bool TakeBackTyped(ITfContext* context, TfEditCookie ec, wchar_t typed);
+  static LRESULT CALLBACK KeyWatchProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
   // Input mode (InputMode.cpp)
   bool InitInputMode();
@@ -209,6 +224,19 @@ class TextService final : public ITfTextInputProcessorEx,
   bool privateMode_ = false;
   bool updatingCompartment_ = false;
   bool shiftAlone_ = false;
+  // BypassedKeys.cpp
+  struct BypassedKey {
+    WPARAM vk = 0;
+    KeyAction action;
+    wchar_t typed = 0;  // what the app typed for it, if anything
+  };
+  HWND keyWatchWindow_ = nullptr;
+  DWORD keyTraceCookie_ = TF_INVALID_COOKIE;
+  WPARAM lastOfferedVk_ = 0;
+  BypassedKey bypassed_;
+  bool bypassedPending_ = false;
+  int bypassedAttempts_ = 0;
+  bool bypassedConfirmed_ = false;  // the app handled the key message without offering it
   bool readingInvalid_ = false;  // last tone key completed a syllable that does not exist
   bool shortcutMode_ = false;    // after ` p: typing a user phrase's shortcut keys
   std::wstring shortcutKeys_;

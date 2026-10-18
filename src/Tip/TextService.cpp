@@ -48,6 +48,8 @@ STDMETHODIMP TextService::QueryInterface(REFIID riid, void** ppv) {
       *ppv = static_cast<ITfDisplayAttributeProvider*>(this);
     } else if (riid == IID_ITfCompartmentEventSink) {
       *ppv = static_cast<ITfCompartmentEventSink*>(this);
+    } else if (riid == IID_ITfKeyTraceEventSink) {
+      *ppv = static_cast<ITfKeyTraceEventSink*>(this);
     } else {
       return E_NOINTERFACE;
     }
@@ -115,6 +117,8 @@ STDMETHODIMP TextService::ActivateEx(ITfThreadMgr* threadMgr, TfClientId clientI
     Deactivate();
     return E_FAIL;
   }
+  // Optional: only for apps that sometimes skip the IME (see BypassedKeys.cpp).
+  InitKeyTrace();
   ComPtr<ITfDocumentMgr> focus;
   if (SUCCEEDED(threadMgr_->GetFocus(&focus))) RequestPrivacyUpdate(focus.Get());
   return S_OK;
@@ -136,6 +140,7 @@ STDMETHODIMP TextService::Deactivate() {
     candidateWindow_.reset();
     UninitInputMode();
     UninitLangBar();
+    UninitKeyTrace();
     UninitKeyEventSink();
     UninitThreadMgrEventSink();
     threadMgr_.Reset();
