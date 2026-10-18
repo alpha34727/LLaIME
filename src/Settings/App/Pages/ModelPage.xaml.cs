@@ -152,7 +152,7 @@ public sealed partial class ModelPage : Page
                 ToolTipService.SetToolTip(delete, "刪除下載的檔案");
                 delete.Click += async (_, _) =>
                 {
-                    if (!await Dialogs.ConfirmAsync($"刪除「{model.Name}」？", $"會刪除 {model.Folder}，之後可再下載。", "刪除")) return;
+                    if (!await Dialogs.ConfirmAsync($"刪除「{model.Name}」？", model.Custom ? $"會刪除 {model.Folder}，並從清單移除。" : $"會刪除 {model.Folder}，之後可再下載。", "刪除")) return;
                     ModelCatalog.Delete(model);
                     ShowDownloads();
                 };
@@ -170,6 +170,23 @@ public sealed partial class ModelPage : Page
                 IsEnabled = model.Published && downloading_ == null,
             };
             download.Click += async (_, _) => await DownloadAsync(model);
+            if (model.Custom)
+            {
+                // A link that was tried but not downloaded (or whose download was left partway):
+                // takes it, and what was downloaded of it, off the list.
+                var remove = new Button
+                {
+                    Content = new FontIcon { Glyph = "\uE74D", FontSize = 14 },
+                    IsEnabled = downloading_ == null,
+                };
+                ToolTipService.SetToolTip(remove, "從清單移除");
+                remove.Click += (_, _) =>
+                {
+                    ModelCatalog.Delete(model);
+                    ShowDownloads();
+                };
+                panel.Children.Add(remove);
+            }
             panel.Children.Add(download);
         }
         card.Content = panel;

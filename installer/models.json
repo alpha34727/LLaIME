@@ -7,10 +7,10 @@
       "name": "Qwen3.5-2B 台灣 LoRA（建議）",
       "description": "以台灣正體中文語料微調的 2B 語言模型，選字最準（評測 dev 88.6%）。建議 4 GB 以上顯示記憶體；CPU 也能跑但較慢。",
       "license": "Apache-2.0",
-      "repo": "",
+      "repo": "alpha34727/Qwen3.5-2B-TW-IME",
       "files": [
         {
-          "name": "Qwen3.5-2B-tw-Q4_K_M.gguf",
+          "name": "Qwen3.5-2B-TW-IME-Q4_K_M.gguf",
           "size": 1274396768,
           "sha256": "cdc08380bac904bdefab0aa8bfb0dc4664b6fa186111bc1133f53c141d445bb6"
         }
