@@ -9,14 +9,15 @@
 .PARAMETER Configuration
   Release (default) or Debug.
 .PARAMETER CudaArchitectures
-  CUDA SM list. Default "120-real" (RTX 50 series) for development; use e.g.
-  "75-real;86-real;89-real;120-real;120-virtual" for distribution builds.
+  CUDA SM list. Default "75-real;86-real;89-real;120-real" (RTX 20, 30, 40 and 50 series). A
+  build without the card's SM crashes the engine when it loads the model there; a single SM
+  such as "120-real" is only for quick builds on one's own machine.
 .PARAMETER Vulkan
   Also build the Vulkan backend (requires the Vulkan SDK, VULKAN_SDK env var).
 #>
 param(
   [ValidateSet('Release', 'Debug')] [string] $Configuration = 'Release',
-  [string] $CudaArchitectures = '120-real',
+  [string] $CudaArchitectures = '75-real;86-real;89-real;120-real',
   [switch] $NoCuda,
   [switch] $Vulkan
 )

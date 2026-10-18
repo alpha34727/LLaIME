@@ -30,6 +30,8 @@
 #include <atomic>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <functional>
 #include <memory>
 #include <list>
@@ -167,25 +169,73 @@ class Engine {
     return StartLlm(settings) || StartLaya(settings);
   }
 
+  // A GPU backend that kills the process while loading (a CUDA build without kernels for this
+  // card, a broken driver) would otherwise kill every start of the engine. Loading is marked
+  // in a file; finding the mark at the next start means the load crashed, and the same device,
+  // model and backend build are then skipped in favor of the CPU. Changing the device, the
+  // model or the backend files tries again.
+  static std::string FileText(const std::wstring& path) {
+    std::ifstream in{std::filesystem::path(path), std::ios::binary};
+    return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+  }
+
+  static void WriteText(const std::wstring& path, const std::string& text) {
+    std::ofstream out{std::filesystem::path(path), std::ios::binary | std::ios::trunc};
+    out << text;
+  }
+
+  static std::string LoadKey(const Settings& settings) {
+    std::string key = ToUtf8(settings.device) + "|" + ToUtf8(settings.model);
+    for (const wchar_t* dll : {L"ggml-cuda.dll", L"ggml-vulkan.dll"}) {
+      std::error_code ec;
+      const std::filesystem::path file = std::filesystem::path(ExeDir()) / dll;
+      const auto size = std::filesystem::file_size(file, ec);
+      const auto time = std::filesystem::last_write_time(file, ec);
+      if (!ec) {
+        key += "|" + std::to_string(size) + ":" + std::to_string(time.time_since_epoch().count());
+      }
+    }
+    return key;
+  }
+
   bool StartLlm(const Settings& settings) {
     if (settings.model.empty()) return false;
     LlmScorer::Options options;
     options.modelPath = ToUtf8(settings.model);
     options.device = ToUtf8(settings.device);
+    const std::wstring loadingFile = DataDir() + L"\\llm-loading.txt";
+    const std::wstring failedFile = DataDir() + L"\\llm-failed.txt";
+    const std::string key = LoadKey(settings);
+    std::error_code ec;
+    if (std::filesystem::exists(loadingFile, ec)) {
+      WriteText(failedFile, FileText(loadingFile));  // the last load never finished
+      std::filesystem::remove(loadingFile, ec);
+    }
+    Settings used = settings;
+    if (settings.device != L"CPU" && FileText(failedFile) == key) {
+      fprintf(stderr, "this device crashed the engine while loading; using the CPU\n");
+      SetError(std::string("上次用「") + ToUtf8(settings.device) +
+               "」載入模型時選字引擎當機，已改用 CPU。更換裝置、模型或更新版本後會再試。");
+      options.device = "CPU";
+      used.device = L"CPU";
+    }
+    WriteText(loadingFile, key);
     options.maxCandidates = 16;
     options.threads = settings.threads;
     std::string error;
     if (!scorer_->Load(options, &error)) {
       fprintf(stderr, "model load failed: %s\n", error.c_str());
       SetError("LLM: " + error);
+      std::filesystem::remove(loadingFile, ec);
       return false;
     }
     modelName_ = settings.model.substr(settings.model.find_last_of(L"\\/") + 1);
-    deviceName_ = settings.device;
+    deviceName_ = used.device;
     rankerName_ = L"llm";
     // The first decode allocates GPU buffers and compiles kernels; do it now rather than on
     // the user's first keystroke.
     scorer_->Score(kPromptPrefix, {"暖機", "暖身"});
+    std::filesystem::remove(loadingFile, ec);
     return true;
   }
 
