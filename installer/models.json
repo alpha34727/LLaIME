@@ -19,7 +19,7 @@
     {
       "id": "laya-zh",
       "kind": "laya",
-      "name": "Laya 中文排序器（CPU 模式）",
+      "name": "決策模型（System 1 Model，CPU 模式）",
       "description": "沒有顯示卡時用的編碼器排序器，純 CPU 每次約 50 ms。",
       "license": "Apache-2.0",
       "repo": "",

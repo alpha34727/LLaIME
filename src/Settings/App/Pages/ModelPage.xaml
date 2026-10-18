@@ -32,16 +32,17 @@
       </tk:SettingsCard>
 
       <TextBlock Text="選字方式" Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" />
-      <tk:SettingsCard Header="選字模型" Description="自動：有顯示卡時用語言模型，否則用 CPU 模式。">
+      <tk:SettingsCard Header="選字模型" Description="自動：有顯示卡時用大語言模型，否則用決策模型。傳統演算法不使用模型，只依詞庫排序。">
         <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE950;" /></tk:SettingsCard.HeaderIcon>
         <ComboBox x:Name="RankerBox" MinWidth="260" SelectionChanged="Setting_Changed">
           <ComboBoxItem Content="自動" Tag="auto" />
-          <ComboBoxItem Content="語言模型（LLM，建議有顯示卡）" Tag="llm" />
-          <ComboBoxItem Content="CPU 模式（Laya）" Tag="laya" />
+          <ComboBoxItem Content="大語言模型（LLM）" Tag="llm" />
+          <ComboBoxItem Content="決策模型（System 1 Model）" Tag="laya" />
+          <ComboBoxItem Content="傳統選字演算法" Tag="none" />
         </ComboBox>
       </tk:SettingsCard>
 
-      <tk:SettingsExpander x:Name="ModelExpander" Header="語言模型" IsExpanded="True"
+      <tk:SettingsExpander x:Name="ModelExpander" Header="大語言模型" IsExpanded="True"
                            Description="GGUF 格式的因果語言模型。台灣 LoRA 版以台灣正體語料微調，選字較道地。">
         <tk:SettingsExpander.HeaderIcon><FontIcon Glyph="&#xE8F1;" /></tk:SettingsExpander.HeaderIcon>
         <ComboBox x:Name="ModelBox" MinWidth="320" MaxWidth="420" SelectionChanged="Setting_Changed">
@@ -55,7 +56,7 @@
           <tk:SettingsCard x:Name="ModelPathCard" Header="檔案位置">
             <Button Content="瀏覽…" Click="BrowseModel_Click" />
           </tk:SettingsCard>
-          <tk:SettingsCard Header="加速裝置" Description="語言模型在哪個裝置上執行。自動：有 NVIDIA 顯示卡用 CUDA，其次用其他顯示卡，最後用 CPU。">
+          <tk:SettingsCard Header="加速裝置" Description="大語言模型在哪個裝置上執行。自動：有 NVIDIA 顯示卡用 CUDA，其次用其他顯示卡，最後用 CPU。">
             <ComboBox x:Name="DeviceBox" MinWidth="320" MaxWidth="420" SelectionChanged="Setting_Changed" />
           </tk:SettingsCard>
           <tk:SettingsCard Header="CPU 執行緒數" Description="0 表示自動。只影響在 CPU 上執行的部分。">
@@ -65,7 +66,7 @@
         </tk:SettingsExpander.Items>
       </tk:SettingsExpander>
 
-      <tk:SettingsCard x:Name="LayaCard" Header="CPU 模式模型（Laya）">
+      <tk:SettingsCard x:Name="LayaCard" Header="決策模型（System 1 Model）">
         <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE9D9;" /></tk:SettingsCard.HeaderIcon>
         <Button Content="選擇資料夾…" Click="BrowseLaya_Click" />
       </tk:SettingsCard>

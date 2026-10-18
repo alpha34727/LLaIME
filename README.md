@@ -104,7 +104,8 @@ uv run python prepare_lexicon.py   # 下載資料來源並產生 data\build\lexi
 |---|---|
 | `auto`（預設） | 有 GPU 用 `llm`，否則用 `laya` |
 | `llm` | 因果語言模型（llama.cpp，`[model] path` 指定 GGUF），有顯示卡時最準 |
-| `laya` | CPU 模式：微調過的 Laya 排序器（ONNX Runtime，`[laya] path` 指定 `models\laya-zh`），純 CPU 每次約 50 ms |
+| `none` | 傳統選字演算法：不載入模型，只依詞庫（與學習結果）排序 |
+| `laya` | 決策模型（System 1 Model，CPU 模式）：微調過的 Laya 排序器（ONNX Runtime，`[laya] path` 指定 `models\laya-zh`），純 CPU 每次約 50 ms |
 
 `[model] device` 是加速裝置（`auto`、`CPU`、`CUDA0`、`Vulkan0`…，清單由引擎列舉），`[model] threads` 是 CPU 執行緒數（0 為自動）。同一頁的「測速」以目前的模型送出 30 次選字請求：Qwen3.5-2B 台灣 LoRA 在 RTX 5060 Ti（CUDA）中位數 33 ms，在 i5-12400（CPU）506 ms。
 

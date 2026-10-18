@@ -3,6 +3,7 @@
 //
 // Settings: %LOCALAPPDATA%\LLaIME\engine.ini
 //   [model]
+//   ranker=none          ; the traditional algorithm: no model, the lexicon's order
 //   ranker=auto          ; llm: causal LM (llama.cpp), best with a GPU
 //                        ; laya: CPU mode, the Laya System 1 ranker (ONNX Runtime)
 //                        ; auto: llm when a GPU is present, otherwise laya
@@ -149,6 +150,13 @@ class Engine {
   bool Start(const Settings& settings) {
     LlmScorer::LoadBackends(ToUtf8(ExeDir()));
     std::wstring ranker = settings.ranker;
+    if (ranker == L"none") {
+      // The traditional algorithm: the lexicon's own order, no model to load.
+      rankerName_ = L"none";
+      modelName_.clear();
+      deviceName_.clear();
+      return true;
+    }
     if (ranker == L"auto") {
       bool gpu = false;
       for (const auto& d : LlmScorer::Devices()) gpu |= d.isGpu;
@@ -329,7 +337,7 @@ class Engine {
     for (const auto& c : request.candidates) key += L'\x1f' + c;
     std::lock_guard<std::mutex> lock(mutex_);
     // Checked under the lock: a reload replaces the rankers while holding it.
-    if (!IsLoaded()) return proto::Encode(response);
+    if (!IsLoaded() || rankerName_ == L"none") return proto::Encode(response);
     if (!request.privateMode && cache_.Get(key, &response.scores)) {
       response.ok = true;
       return proto::Encode(response);

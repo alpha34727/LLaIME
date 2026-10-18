@@ -397,17 +397,23 @@ public sealed partial class ModelPage : Page
     {
         var status = await Task.Run(Native.EngineStatus);
         StartEngineButton.Visibility = status.Running ? Visibility.Collapsed : Visibility.Visible;
-        BenchmarkButton.IsEnabled = status.Running && status.State == "ready";
+        BenchmarkButton.IsEnabled = status.Running && status.State == "ready" && status.Ranker != "none";
         if (!status.Running)
         {
             StatusBar.Severity = InfoBarSeverity.Warning;
             StatusBar.Title = "選字引擎沒有在執行";
             StatusBar.Message = "輸入法會在下次打字時自動啟動它，也可以現在啟動。";
         }
+        else if (status.State == "ready" && status.Ranker == "none")
+        {
+            StatusBar.Severity = InfoBarSeverity.Informational;
+            StatusBar.Title = "使用傳統選字演算法";
+            StatusBar.Message = "不使用模型，依詞庫與學習的結果選字。";
+        }
         else if (status.State == "ready")
         {
             StatusBar.Severity = InfoBarSeverity.Success;
-            StatusBar.Title = status.Ranker == "laya" ? "已載入 CPU 模式模型" : "已載入語言模型";
+            StatusBar.Title = status.Ranker == "laya" ? "已載入決策模型" : "已載入大語言模型";
             var device = status.Device is "" or "auto" ? "自動選擇裝置" : status.Device;
             StatusBar.Message = $"{status.Model}（{device}）";
         }
