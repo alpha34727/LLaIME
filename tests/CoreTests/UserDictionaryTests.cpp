@@ -129,3 +129,32 @@ TEST(Learning, BonusForPickedWordsAndContext) {
   other[1].text = L"意義";
   EXPECT_DOUBLE_EQ(LearnedBonus(user, c, other), 0.0);
 }
+
+TEST(UserDictionary, ShortcutsMatchAsTheyAreTyped) {
+  UserDictionary dict;
+  dict.AddShortcut(L"mk", L"「」");
+  dict.AddShortcut(L"mkk", L"『』");
+  dict.AddShortcut(L"ad", L"台北市");
+  dict.AddShortcut(L"Bad", L"x");  // upper case is not a shortcut key
+  EXPECT_FALSE(dict.empty());
+
+  auto m = dict.MatchShortcut(L"m");
+  EXPECT_FALSE(m.text);
+  EXPECT_TRUE(m.longer);
+  m = dict.MatchShortcut(L"mk");
+  ASSERT_TRUE(m.text);
+  EXPECT_EQ(*m.text, L"「」");
+  EXPECT_TRUE(m.longer);  // mkk also starts with mk: wait for Enter or another key
+  m = dict.MatchShortcut(L"mkk");
+  ASSERT_TRUE(m.text);
+  EXPECT_EQ(*m.text, L"『』");
+  EXPECT_FALSE(m.longer);
+  m = dict.MatchShortcut(L"ad");
+  ASSERT_TRUE(m.text);
+  EXPECT_FALSE(m.longer);
+  EXPECT_FALSE(dict.MatchShortcut(L"z").any());
+  EXPECT_FALSE(dict.MatchShortcut(L"bad").any());
+  EXPECT_FALSE(UserDictionary::ValidShortcut(L""));
+  EXPECT_FALSE(UserDictionary::ValidShortcut(L"a-b"));
+  EXPECT_TRUE(UserDictionary::ValidShortcut(L"q1"));
+}

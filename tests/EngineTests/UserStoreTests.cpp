@@ -191,3 +191,42 @@ TEST_F(UserStoreTest, LearnedPhraseMadeManual) {
   ASSERT_TRUE(store_->ClearLearning());
   EXPECT_EQ(store_->ListPhrases().size(), 1u);
 }
+
+TEST_F(UserStoreTest, PhrasesTypedByShortcut) {
+  // A symbol with no reading, typed by its shortcut alone.
+  ASSERT_TRUE(store_->AddPhrase({}, L"「」", kT0, L"mk"));
+  ASSERT_TRUE(store_->AddPhrase(R(L"ㄨㄟˋ-ㄓㄜˊ-ㄐㄧㄚˉ"), L"魏哲家", kT0, L"wzj"));
+  EXPECT_FALSE(store_->AddPhrase({}, L"沒有注音也沒有快捷鍵", kT0));
+  EXPECT_FALSE(store_->AddPhrase({}, L"『』", kT0, L"mk"));  // taken
+  EXPECT_FALSE(store_->AddPhrase({}, L"『』", kT0, L"M-K"));
+  EXPECT_EQ(store_->ShortcutOwner(L"mk"), L"「」");
+
+  auto snap = store_->Snapshot(0, kT0);
+  ASSERT_EQ(snap.shortcuts.size(), 2u);
+  ASSERT_EQ(snap.phrases.size(), 1u);  // only 魏哲家 converts from its reading
+  EXPECT_EQ(snap.phrases[0].text, L"魏哲家");
+
+  auto rows = store_->ListPhrases();
+  ASSERT_EQ(rows.size(), 2u);
+  // Changing the shortcut, and removing a phrase that has no reading.
+  ASSERT_TRUE(store_->UpdatePhrase({}, L"「」", {}, L"「」", L"qq"));
+  EXPECT_EQ(store_->ShortcutOwner(L"mk"), L"");
+  EXPECT_EQ(store_->ShortcutOwner(L"qq"), L"「」");
+  ASSERT_TRUE(store_->RemovePhrase({}, L"「」"));
+  EXPECT_EQ(store_->ListPhrases().size(), 1u);
+
+  // The snapshot round-trips through the protocol, and a reply without shortcuts (an older
+  // engine) still decodes.
+  auto bytes = proto::Encode(store_->Snapshot(0, kT0));
+  proto::Reader in(bytes.data(), bytes.size());
+  proto::UserDictResponse decoded;
+  ASSERT_EQ(in.Header(), proto::MessageType::UserDictResponse);
+  ASSERT_TRUE(proto::Decode(in, &decoded));
+  ASSERT_EQ(decoded.shortcuts.size(), 1u);
+  EXPECT_EQ(decoded.shortcuts[0].keys, L"wzj");
+  bytes.resize(bytes.size() - (4 + 4 + 3 * 2 + 4 + 3 * 2));  // drop the shortcut list
+  proto::Reader old(bytes.data(), bytes.size());
+  ASSERT_EQ(old.Header(), proto::MessageType::UserDictResponse);
+  ASSERT_TRUE(proto::Decode(old, &decoded));
+  EXPECT_TRUE(decoded.shortcuts.empty());
+}

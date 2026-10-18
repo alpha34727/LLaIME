@@ -95,6 +95,13 @@ struct UserDictResponse {
   bool learningEnabled = true;
   std::vector<Phrase> phrases;
   std::vector<Selection> selections;
+  // Phrases typed by shortcut (` p, then the keys), e.g. "mk" -> 「」. Sent last, so TIPs that
+  // predate shortcuts still read the rest.
+  struct Shortcut {
+    std::wstring keys;
+    std::wstring text;
+  };
+  std::vector<Shortcut> shortcuts;
 };
 
 struct LearnRequest {
@@ -205,6 +212,7 @@ class Reader {
     return Raw(r->data(), n * sizeof(uint16_t));
   }
   // A count of items, each at least `minBytes` long, that fits in what is left.
+  bool AtEnd() const { return p_ == end_; }
   bool Count(uint32_t* n, size_t minBytes) {
     return U32(n) && *n <= static_cast<size_t>(end_ - p_) / minBytes;
   }
@@ -362,6 +370,11 @@ inline std::vector<uint8_t> Encode(const UserDictResponse& r) {
     w.Str(s.prev);
     w.F64(s.weight);
   }
+  w.U32(static_cast<uint32_t>(r.shortcuts.size()));
+  for (const auto& s : r.shortcuts) {
+    w.Str(s.keys);
+    w.Str(s.text);
+  }
   return w.bytes();
 }
 
@@ -382,6 +395,14 @@ inline bool Decode(Reader& in, UserDictResponse* r) {
     if (!in.Syllables(&s.reading) || !in.Str(&s.text) || !in.Str(&s.prev) || !in.F64(&s.weight)) {
       return false;
     }
+  }
+  // An engine that predates shortcuts ends here.
+  r->shortcuts.clear();
+  if (in.AtEnd()) return true;
+  if (!in.Count(&count, 8)) return false;
+  r->shortcuts.resize(count);
+  for (auto& s : r->shortcuts) {
+    if (!in.Str(&s.keys) || !in.Str(&s.text)) return false;
   }
   return true;
 }

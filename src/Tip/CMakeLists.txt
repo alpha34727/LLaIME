@@ -28,6 +28,7 @@ add_library(LLaIME.Tip SHARED
   Ranking.cpp
   UserDict.cpp
   Lexicons.cpp
+  Shortcut.cpp
   Tip.def
   Tip.rc
 )

@@ -82,6 +82,11 @@ class Composer {
   // nothing is pinned: further typing is converted afresh.
   void SetPreferred(const Sentence& sentence);
 
+  // The punctuation or other literal just before the cursor ("" if none, or a syllable).
+  std::wstring_view LiteralBeforeCursor() const {
+    return cursor_ > 0 ? std::wstring_view(elements_[cursor_ - 1].literal) : std::wstring_view();
+  }
+
   // Character offset in Text() of the boundary before element `index`.
   size_t TextOffsetOf(size_t index) const;
 

@@ -94,6 +94,7 @@ KeyAction TextService::ClassifyKey(WPARAM vk) const {
     return ch ? MakeInsert(ToFullWidth(ch)) : Make(Type::PassThrough);
   }
 
+  if (shortcutMode_) return ClassifyShortcutKey(vk);
   const bool composing = IsComposing();
   if (mods.alt) return Make(Type::PassThrough);
   if (mods.ctrl) {
@@ -130,6 +131,9 @@ KeyAction TextService::ClassifyKey(WPARAM vk) const {
       default: break;  // any other key closes the list and is handled normally
     }
   }
+
+  // ` then p: a user phrase shortcut follows.
+  if (vk == 'P' && !mods.shift && AtShortcutTrigger()) return Make(Type::ShortcutStart);
 
   // Caps Lock types English letters: upper case, or lower case with Shift.
   const bool capsLock = (GetKeyState(VK_CAPITAL) & 1) != 0;
@@ -290,6 +294,14 @@ void TextService::HandleAction(ITfContext* context, TfEditCookie ec, const KeyAc
       return;
     case Type::DirectInsert:
       InsertDirect(context, ec, action.text);
+      return;
+    case Type::ShortcutStart:
+    case Type::ShortcutKey:
+    case Type::ShortcutBackspace:
+    case Type::ShortcutAccept:
+    case Type::ShortcutCancel:
+    case Type::ShortcutReject:
+      HandleShortcut(context, ec, action);
       return;
   }
   UpdateComposition(context, ec);

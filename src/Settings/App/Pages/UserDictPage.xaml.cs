@@ -53,12 +53,14 @@ public sealed partial class UserDictPage : Page
     private void ShowPhrases()
     {
         var query = PhraseSearch.Text.Trim();
-        IEnumerable<PhraseInfo> list = phrases_.Where(p => Matches(query, p.Text, p.Reading));
+        IEnumerable<PhraseInfo> list = phrases_.Where(p => Matches(query, p.Text, p.Reading) ||
+                                                           (query.Length > 0 && p.Shortcut.StartsWith(query, StringComparison.OrdinalIgnoreCase)));
         Func<PhraseInfo, object> key = phraseSort_ switch
         {
             "text" => p => p.Text,
             "reading" => p => p.Reading,
             "kind" => p => p.Kind,
+            "shortcut" => p => p.Shortcut,
             _ => p => p.Created,
         };
         list = phraseSortDescending_ ? list.OrderByDescending(key) : list.OrderBy(key);
@@ -101,7 +103,8 @@ public sealed partial class UserDictPage : Page
     }
 
     // Adds a phrase (existing == null) or edits one. The reading is filled in from the lexicon
-    // as the text is typed; heteronyms offer their other readings in the list.
+    // as the text is typed; heteronyms offer their other readings in the list. A shortcut types
+    // the phrase with ` p and its keys; a phrase with a shortcut needs no reading (「」).
     private async Task EditPhraseAsync(PhraseInfo? existing)
     {
         var text = new TextBox { Header = "詞", Text = existing?.Text ?? "", PlaceholderText = "例如：魏哲家", MaxLength = 32 };
@@ -112,6 +115,14 @@ public sealed partial class UserDictPage : Page
             HorizontalAlignment = HorizontalAlignment.Stretch,
             PlaceholderText = "輸入詞後自動標注音",
         };
+        var shortcut = new TextBox
+        {
+            Header = "快捷鍵（選填）",
+            Text = existing?.Shortcut ?? "",
+            PlaceholderText = "例如 mk：輸入時依序按 `、p、m、k",
+            MaxLength = 16,
+            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
+        };
         var hint = new TextBlock
         {
             TextWrapping = TextWrapping.Wrap,
@@ -120,18 +131,28 @@ public sealed partial class UserDictPage : Page
         var content = new StackPanel { Spacing = 12, MinWidth = 380 };
         content.Children.Add(text);
         content.Children.Add(reading);
+        content.Children.Add(shortcut);
         content.Children.Add(hint);
         var dialog = Dialogs.Create(existing == null ? "新增詞彙" : "編輯詞彙", content, "儲存", "取消");
 
         string ReadingText() => (reading.Text ?? "").Trim();
+        string ShortcutKeys() => shortcut.Text.Trim().ToLowerInvariant();
         void Validate()
         {
-            var ok = text.Text.Trim().Length > 0 && Native.CheckReading(ReadingText(), text.Text.Trim());
+            var keys = ShortcutKeys();
+            var keysOk = keys.Length == 0 || keys.All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9');
+            var readingOk = ReadingText().Length == 0
+                ? keys.Length > 0
+                : Native.CheckReading(ReadingText(), text.Text.Trim());
+            var ok = text.Text.Trim().Length > 0 && readingOk && keysOk;
             dialog.IsPrimaryButtonEnabled = ok;
             hint.Text = text.Text.Trim().Length == 0 ? ""
-                : ReadingText().Length == 0 ? "詞庫裡找不到這些字的讀音，請自行輸入注音。"
-                : ok ? (reading.Items.Count > 1 ? "有多種讀音，可從清單中選擇。" : "")
-                : "注音的音節數要和字數相同，例如「ㄨㄟˋ ㄓㄜˊ ㄐㄧㄚ」。";
+                : !keysOk ? "快捷鍵只能用英文字母與數字。"
+                : ReadingText().Length == 0 && keys.Length == 0 ? "詞庫裡找不到這些字的讀音，請自行輸入注音，或只指定快捷鍵（例如符號「」）。"
+                : ReadingText().Length == 0 ? $"沒有注音：只能用快捷鍵 ` p {keys} 輸入。"
+                : !readingOk ? "注音的音節數要和字數相同，例如「ㄨㄟˋ ㄓㄜˊ ㄐㄧㄚ」。"
+                : keys.Length > 0 ? $"也可以依序按 `、p、{string.Join("、", keys.ToCharArray())} 輸入。"
+                : reading.Items.Count > 1 ? "有多種讀音，可從清單中選擇。" : "";
         }
         void Suggest()
         {
@@ -143,6 +164,7 @@ public sealed partial class UserDictPage : Page
             Validate();
         }
         text.TextChanged += (_, _) => Suggest();
+        shortcut.TextChanged += (_, _) => Validate();
         reading.TextSubmitted += (_, args) => DispatcherQueue.TryEnqueue(Validate);
         reading.SelectionChanged += (_, _) => DispatcherQueue.TryEnqueue(Validate);
         reading.KeyUp += (_, _) => Validate();
@@ -150,26 +172,25 @@ public sealed partial class UserDictPage : Page
         if (existing != null)
         {
             Suggest();
-            if (!reading.Items.Contains(existing.Reading)) reading.Items.Insert(0, existing.Reading);
-            reading.SelectedItem = existing.Reading;
+            shortcut.Text = existing.Shortcut;
+            if (existing.Reading.Length > 0)
+            {
+                if (!reading.Items.Contains(existing.Reading)) reading.Items.Insert(0, existing.Reading);
+                reading.SelectedItem = existing.Reading;
+            }
+            else
+            {
+                reading.SelectedIndex = -1;  // typed by its shortcut alone
+            }
             reading.Text = existing.Reading;
         }
         Validate();
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
 
-        bool saved;
-        string? error = null;
-        if (existing == null)
-        {
-            var result = Native.AddPhrase(ReadingText(), text.Text.Trim());
-            saved = result.Ok;
-            error = result.Error;
-        }
-        else
-        {
-            saved = Native.UpdatePhrase(existing, ReadingText(), text.Text.Trim());
-        }
-        if (!saved) await Dialogs.ShowMessageAsync("無法儲存", error ?? "請檢查詞與注音。");
+        var result = existing == null
+            ? Native.AddPhrase(ReadingText(), text.Text.Trim(), ShortcutKeys())
+            : Native.UpdatePhrase(existing, ReadingText(), text.Text.Trim(), ShortcutKeys());
+        if (!result.Ok) await Dialogs.ShowMessageAsync("無法儲存", result.Error ?? "請檢查詞與注音。");
         RefreshPhrases();
     }
 

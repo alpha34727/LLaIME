@@ -116,7 +116,8 @@ void TextService::UpdateComposition(ITfContext* context, TfEditCookie ec) {
   }
   std::wstring display = composer_.Text();
   const size_t insertAt = composer_.TextOffsetOf(composer_.cursor());
-  std::wstring readingText = reading_.Text();
+  // The reading being typed, or after ` the p and shortcut keys.
+  std::wstring readingText = shortcutMode_ ? L"p" + shortcutKeys_ : reading_.Text();
   // An invalid first-tone syllable shows its tone mark so the highlight covers what was typed.
   if (readingInvalid_ && reading_.Current().tone() == 1) readingText += static_cast<wchar_t>(0x02C9);
   display.insert(std::min(insertAt, display.size()), readingText);
@@ -212,6 +213,8 @@ void TextService::CancelComposition(ITfContext* context, TfEditCookie ec) {
 
 void TextService::ResetState() {
   CloseCandidates();
+  shortcutMode_ = false;
+  shortcutKeys_.clear();
   composer_.Clear();
   reading_.Clear();
   composition_.Reset();

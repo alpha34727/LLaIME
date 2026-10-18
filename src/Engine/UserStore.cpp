@@ -65,8 +65,11 @@ class Stmt {
 // Weight decayed from `updated` to `now` (both Unix seconds), as SQL.
 #define DECAYED(now) "weight * pow(0.5, (" now " - updated) / 86400.0 / ?9)"
 
-// Validated stored form of a reading from the wire.
-std::optional<std::wstring> ReadingText(const protocol::Reading& reading) {
+// Validated stored form of a reading from the wire. Empty only if `allowEmpty` (a phrase
+// typed by its shortcut alone).
+std::optional<std::wstring> ReadingText(const protocol::Reading& reading,
+                                        bool allowEmpty = false) {
+  if (reading.empty() && allowEmpty) return std::wstring();
   if (reading.empty() || reading.size() > Lexicon::kMaxPhraseLength) return std::nullopt;
   std::vector<Syllable> syllables;
   for (uint16_t bits : reading) {
@@ -75,6 +78,10 @@ std::optional<std::wstring> ReadingText(const protocol::Reading& reading) {
     syllables.push_back(s);
   }
   return FormatReading(syllables);
+}
+
+bool ValidShortcut(const std::wstring& shortcut) {
+  return shortcut.empty() || UserDictionary::ValidShortcut(shortcut);
 }
 
 bool ValidText(const std::wstring& text) {
@@ -133,6 +140,19 @@ bool UserStore::Open(const std::wstring& path, std::string* error) {
     db_ = nullptr;
     return false;
   }
+  // Version 2: phrases typed by shortcut.
+  {
+    Stmt has(db_, "SELECT 1 FROM pragma_table_info('phrases') WHERE name = 'shortcut'");
+    if (!has.Step() &&
+        !Exec("ALTER TABLE phrases ADD COLUMN shortcut TEXT NOT NULL DEFAULT ''")) {
+      if (error) *error = sqlite3_errmsg(db_);
+      sqlite3_close_v2(db_);
+      db_ = nullptr;
+      return false;
+    }
+  }
+  Exec("CREATE UNIQUE INDEX IF NOT EXISTS phrases_shortcut ON phrases(shortcut)"
+       " WHERE shortcut <> ''; PRAGMA user_version=2;");
   // Forget what has faded away.
   Stmt prune(db_, "DELETE FROM selections WHERE " DECAYED("?1") " < ?2");
   prune.Bind(1, Now(0)).Bind(2, UserDictionary::kMinWeight).Bind(9, kHalfLifeDays).Run();
@@ -185,10 +205,11 @@ protocol::UserDictResponse UserStore::Snapshot(uint32_t knownVersion, int64_t no
     Stmt q(db_, "SELECT value FROM settings WHERE key = 'learning'");
     r.learningEnabled = !q.Step() || q.Text(0) != L"0";
   }
-  Stmt phrases(db_, "SELECT reading, text, kind FROM phrases");
+  Stmt phrases(db_, "SELECT reading, text, kind, shortcut FROM phrases");
   while (phrases.Step()) {
     protocol::UserDictResponse::Phrase p{WireReading(phrases.Text(0)), phrases.Text(1),
                                           static_cast<uint32_t>(phrases.Int(2))};
+    if (std::wstring keys = phrases.Text(3); !keys.empty()) r.shortcuts.push_back({keys, p.text});
     if (!p.reading.empty()) r.phrases.push_back(std::move(p));
   }
   Stmt selections(db_,
@@ -266,23 +287,27 @@ bool UserStore::Learn(const protocol::LearnRequest& request, int64_t now) {
 }
 
 bool UserStore::AddPhrase(const protocol::Reading& reading, const std::wstring& text,
-                          int64_t now) {
-  const auto stored = ReadingText(reading);
-  if (!stored || !ValidText(text)) return false;
+                          int64_t now, const std::wstring& shortcut) {
+  const auto stored = ReadingText(reading, !shortcut.empty());
+  if (!stored || !ValidText(text) || !ValidShortcut(shortcut)) return false;
   std::lock_guard<std::mutex> lock(mutex_);
   if (!db_) return false;
-  // A phrase added by hand stays manual even if it was learned before.
+  // A phrase added by hand stays manual even if it was learned before; a shortcut given here
+  // replaces its old one.
   Stmt q(db_,
-         "INSERT INTO phrases(reading, text, kind, created) VALUES(?1, ?2, 0, ?3)"
-         " ON CONFLICT(reading, text) DO UPDATE SET kind = 0");
-  if (!q.Bind(1, *stored).Bind(2, text).Bind(3, Now(now)).Run()) return false;
+         "INSERT INTO phrases(reading, text, kind, created, shortcut) VALUES(?1, ?2, 0, ?3, ?4)"
+         " ON CONFLICT(reading, text) DO UPDATE SET kind = 0,"
+         " shortcut = CASE WHEN ?4 <> '' THEN ?4 ELSE shortcut END");
+  if (!q.Bind(1, *stored).Bind(2, text).Bind(3, Now(now)).Bind(4, shortcut).Run()) {
+    return false;
+  }
   Bump();
   CheckOutsideChanges();
   return true;
 }
 
 bool UserStore::RemovePhrase(const protocol::Reading& reading, const std::wstring& text) {
-  const auto stored = ReadingText(reading);
+  const auto stored = ReadingText(reading, true);
   if (!stored) return false;
   std::lock_guard<std::mutex> lock(mutex_);
   if (!db_) return false;
@@ -297,10 +322,13 @@ std::vector<UserStore::PhraseRow> UserStore::ListPhrases() {
   std::vector<PhraseRow> out;
   std::lock_guard<std::mutex> lock(mutex_);
   if (!db_) return out;
-  Stmt q(db_, "SELECT reading, text, kind, created FROM phrases ORDER BY created DESC, text");
+  Stmt q(db_,
+         "SELECT reading, text, kind, created, shortcut FROM phrases"
+         " ORDER BY created DESC, text");
   while (q.Step()) {
-    PhraseRow row{WireReading(q.Text(0)), q.Text(1), static_cast<uint32_t>(q.Int(2)), q.Int(3)};
-    if (!row.reading.empty()) out.push_back(std::move(row));
+    PhraseRow row{WireReading(q.Text(0)), q.Text(1), static_cast<uint32_t>(q.Int(2)), q.Int(3),
+                  q.Text(4)};
+    if (!row.reading.empty() || !row.shortcut.empty()) out.push_back(std::move(row));
   }
   return out;
 }
@@ -321,10 +349,11 @@ std::vector<UserStore::SelectionRow> UserStore::ListSelections(int64_t now) {
 }
 
 bool UserStore::UpdatePhrase(const protocol::Reading& reading, const std::wstring& text,
-                             const protocol::Reading& newReading, const std::wstring& newText) {
-  const auto stored = ReadingText(reading);
-  const auto updated = ReadingText(newReading);
-  if (!stored || !updated || !ValidText(newText)) return false;
+                             const protocol::Reading& newReading, const std::wstring& newText,
+                             const std::wstring& newShortcut) {
+  const auto stored = ReadingText(reading, true);
+  const auto updated = ReadingText(newReading, !newShortcut.empty());
+  if (!stored || !updated || !ValidText(newText) || !ValidShortcut(newShortcut)) return false;
   std::lock_guard<std::mutex> lock(mutex_);
   if (!db_ || !Exec("BEGIN IMMEDIATE")) return false;
   int64_t created = Now(0);
@@ -334,10 +363,11 @@ bool UserStore::UpdatePhrase(const protocol::Reading& reading, const std::wstrin
   }
   Stmt remove(db_, "DELETE FROM phrases WHERE reading = ?1 AND text = ?2");
   Stmt add(db_,
-           "INSERT INTO phrases(reading, text, kind, created) VALUES(?1, ?2, 0, ?3)"
-           " ON CONFLICT(reading, text) DO UPDATE SET kind = 0");
+           "INSERT INTO phrases(reading, text, kind, created, shortcut) VALUES(?1, ?2, 0, ?3, ?4)"
+           " ON CONFLICT(reading, text) DO UPDATE SET kind = 0, shortcut = ?4");
   const bool ok = remove.Bind(1, *stored).Bind(2, text).Run() &&
-                  add.Bind(1, *updated).Bind(2, newText).Bind(3, created).Run();
+                  add.Bind(1, *updated).Bind(2, newText).Bind(3, created).Bind(4, newShortcut)
+                      .Run();
   if (!ok || !Exec("COMMIT")) {
     Exec("ROLLBACK");
     return false;
@@ -345,6 +375,13 @@ bool UserStore::UpdatePhrase(const protocol::Reading& reading, const std::wstrin
   Bump();
   CheckOutsideChanges();
   return true;
+}
+
+std::wstring UserStore::ShortcutOwner(const std::wstring& shortcut) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!db_ || shortcut.empty()) return {};
+  Stmt q(db_, "SELECT text FROM phrases WHERE shortcut = ?1");
+  return q.Bind(1, shortcut).Step() ? q.Text(0) : std::wstring();
 }
 
 bool UserStore::MakeManual(const protocol::Reading& reading, const std::wstring& text) {

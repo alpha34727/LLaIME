@@ -3,6 +3,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <map>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
@@ -42,7 +43,10 @@ class UserDictionary {
   void AddSelection(std::vector<Syllable> reading, std::wstring text, std::wstring prev,
                     double weight);
 
-  bool empty() const { return phrases_.empty() && selections_.empty(); }
+  // A phrase typed by its shortcut keys (lower-case letters and digits).
+  void AddShortcut(std::wstring keys, std::wstring text);
+
+  bool empty() const { return phrases_.empty() && selections_.empty() && shortcuts_.empty(); }
   size_t phraseCount() const { return phrases_.size(); }
   size_t selectionCount() const { return selections_.size(); }
 
@@ -59,6 +63,17 @@ class UserDictionary {
 
   // Whether `text` is a user phrase for `reading`.
   bool HasPhrase(std::span<const Syllable> reading, std::wstring_view text) const;
+
+  // Shortcuts typed so far: the phrase of exactly `keys` (if any), whether a longer shortcut
+  // starts with `keys`, and whether any does (exact or longer).
+  struct ShortcutMatch {
+    const std::wstring* text = nullptr;
+    bool longer = false;
+    bool any() const { return text || longer; }
+  };
+  ShortcutMatch MatchShortcut(std::wstring_view keys) const;
+  static bool ValidShortcut(std::wstring_view keys);
+  static constexpr size_t kMaxShortcutLength = 16;
 
  private:
   struct Phrase {
@@ -80,6 +95,7 @@ class UserDictionary {
 
   std::vector<Phrase> phrases_;
   std::vector<Selection> selections_;
+  std::map<std::wstring, std::wstring, std::less<>> shortcuts_;  // keys -> text, sorted
   std::unordered_map<std::u16string, std::vector<uint32_t>> phraseIndex_;
   std::unordered_map<std::u16string, std::vector<uint32_t>> selectionIndex_;
 };

@@ -15,7 +15,9 @@ namespace llaime {
 // %LOCALAPPDATA%\LLaIME\user.db (SQLite, WAL). The engine is its only writer among the IME's
 // processes; the settings app may edit it too, which shows up as a new version.
 //
-//   phrases     (reading, text, kind 0 manual / 1 learned, created)
+//   phrases     (reading, text, kind 0 manual / 1 learned, created, shortcut): shortcut is
+//               '' or the keys that type the phrase after ` p (unique); a phrase with a
+//               shortcut may have no reading ('').
 //   selections  (reading, text, prev, weight, updated): picks of `text` for `reading`, overall
 //               (prev = '') and after the word `prev`. A pick adds 1 and halves the other texts
 //               picked for the same reading; weights halve every kHalfLifeDays.
@@ -47,7 +49,9 @@ class UserStore {
   protocol::UserDictResponse Snapshot(uint32_t knownVersion, int64_t now = 0);
   // Ignored (true) while learning is paused.
   bool Learn(const protocol::LearnRequest& request, int64_t now = 0);
-  bool AddPhrase(const protocol::Reading& reading, const std::wstring& text, int64_t now = 0);
+  // `reading` may be empty when `shortcut` is set.
+  bool AddPhrase(const protocol::Reading& reading, const std::wstring& text, int64_t now = 0,
+                 const std::wstring& shortcut = {});
   bool RemovePhrase(const protocol::Reading& reading, const std::wstring& text);
 
   // For the settings app's user dictionary page.
@@ -56,6 +60,7 @@ class UserStore {
     std::wstring text;
     uint32_t kind = 0;  // 0 manual, 1 learned
     int64_t created = 0;
+    std::wstring shortcut;
   };
   struct SelectionRow {
     protocol::Reading reading;
@@ -68,7 +73,10 @@ class UserStore {
   std::vector<SelectionRow> ListSelections(int64_t now = 0);
   // Replaces a phrase (kept manual); false if the new one is invalid.
   bool UpdatePhrase(const protocol::Reading& reading, const std::wstring& text,
-                    const protocol::Reading& newReading, const std::wstring& newText);
+                    const protocol::Reading& newReading, const std::wstring& newText,
+                    const std::wstring& newShortcut = {});
+  // The text of the phrase that `shortcut` types, or "" if none.
+  std::wstring ShortcutOwner(const std::wstring& shortcut);
   // A learned phrase kept as if added by hand.
   bool MakeManual(const protocol::Reading& reading, const std::wstring& text);
   // Adds many manual phrases in one transaction; returns how many were new.

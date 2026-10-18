@@ -48,9 +48,10 @@ internal static class Native
 
     // User dictionary
     public static List<PhraseInfo> ListPhrases() => Parse<List<PhraseInfo>>(LLaime_ListPhrases()) ?? [];
-    public static Result AddPhrase(string reading, string text) => Parse<Result>(LLaime_AddPhrase(reading, text)) ?? new();
-    public static bool UpdatePhrase(PhraseInfo phrase, string reading, string text) =>
-        LLaime_UpdatePhrase(phrase.Key, phrase.Text, reading, text) != 0;
+    public static Result AddPhrase(string reading, string text, string shortcut) =>
+        Parse<Result>(LLaime_AddPhrase(reading, text, shortcut)) ?? new();
+    public static Result UpdatePhrase(PhraseInfo phrase, string reading, string text, string shortcut) =>
+        Parse<Result>(LLaime_UpdatePhrase(phrase.Key, phrase.Text, reading, text, shortcut)) ?? new();
     public static bool RemovePhrase(PhraseInfo phrase) => LLaime_RemovePhrase(phrase.Key, phrase.Text) != 0;
     public static bool MakeManual(PhraseInfo phrase) => LLaime_MakeManual(phrase.Key, phrase.Text) != 0;
     public static List<SelectionInfo> ListSelections() => Parse<List<SelectionInfo>>(LLaime_ListSelections()) ?? [];
@@ -83,8 +84,8 @@ internal static class Native
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern string LLaime_GuessReadings(string text);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int LLaime_CheckReading(string reading, string text);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern string LLaime_ListPhrases();
-    [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern string LLaime_AddPhrase(string reading, string text);
-    [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int LLaime_UpdatePhrase(string key, string text, string newReading, string newText);
+    [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern string LLaime_AddPhrase(string reading, string text, string shortcut);
+    [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern string LLaime_UpdatePhrase(string key, string text, string newReading, string newText, string newShortcut);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int LLaime_RemovePhrase(string key, string text);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int LLaime_MakeManual(string key, string text);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern string LLaime_ListSelections();
@@ -158,8 +159,10 @@ public class PhraseInfo
     public string Text { get; set; } = "";
     public int Kind { get; set; }  // 0 manual, 1 learned
     public long Created { get; set; }
+    public string Shortcut { get; set; } = "";
 
     public bool IsLearned => Kind == 1;
+    public string ShortcutText => Shortcut.Length > 0 ? "` p " + Shortcut : "";
     public string KindText => Kind == 1 ? "自動成詞" : "手動加入";
     public string CreatedText => DateTimeOffset.FromUnixTimeSeconds(Created).LocalDateTime.ToString("yyyy/MM/dd");
 }

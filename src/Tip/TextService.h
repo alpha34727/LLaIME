@@ -48,6 +48,13 @@ struct KeyAction {
     CandidateClose,
     ToggleShape,   // Shift+Space: half/full width
     DirectInsert,  // insert `text` straight into the document (nothing is being composed)
+    // User phrase shortcuts: ` then p starts one, then its keys (e.g. ` p m k -> 「」).
+    ShortcutStart,
+    ShortcutKey,  // `ch`: a letter or digit
+    ShortcutBackspace,
+    ShortcutAccept,  // Enter / Space: the phrase of exactly the keys typed
+    ShortcutCancel,
+    ShortcutReject,  // any other key: beep
   };
   Type type = Type::PassThrough;
   wchar_t ch = 0;
@@ -154,7 +161,13 @@ class TextService final : public ITfTextInputProcessorEx,
   KeyAction ClassifyKey(WPARAM vk) const;
   HRESULT ExecuteKeyAction(ITfContext* context, const KeyAction& action);
   void HandleAction(ITfContext* context, TfEditCookie ec, const KeyAction& action);
-  bool IsComposing() const { return !composer_.empty() || !reading_.Empty(); }
+  bool IsComposing() const {
+    return !composer_.empty() || !reading_.Empty() || shortcutMode_;
+  }
+  // Shortcut.cpp
+  KeyAction ClassifyShortcutKey(WPARAM vk) const;
+  bool AtShortcutTrigger() const;
+  void HandleShortcut(ITfContext* context, TfEditCookie ec, const KeyAction& action);
   // Whether an edit session on `context` may touch our composition. Apps (Word saving,
   // Chromium moving focus) can replace the document's context without ending the
   // composition; a range of one context must never be edited with another's cookie, so a
@@ -197,6 +210,8 @@ class TextService final : public ITfTextInputProcessorEx,
   bool updatingCompartment_ = false;
   bool shiftAlone_ = false;
   bool readingInvalid_ = false;  // last tone key completed a syllable that does not exist
+  bool shortcutMode_ = false;    // after ` p: typing a user phrase's shortcut keys
+  std::wstring shortcutKeys_;
 
   std::shared_ptr<const Lexicon> lexiconRef_;  // keeps the layers mapped while in use
   const Lexicon* lexicon_;

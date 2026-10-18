@@ -136,6 +136,33 @@ double UserDictionary::SelectionWeight(std::span<const Syllable> reading, std::w
   return weight;
 }
 
+bool UserDictionary::ValidShortcut(std::wstring_view keys) {
+  return !keys.empty() && keys.size() <= kMaxShortcutLength &&
+         std::all_of(keys.begin(), keys.end(), [](wchar_t c) {
+           return (c >= L'a' && c <= L'z') || (c >= L'0' && c <= L'9');
+         });
+}
+
+void UserDictionary::AddShortcut(std::wstring keys, std::wstring text) {
+  if (!ValidShortcut(keys) || text.empty()) return;
+  shortcuts_[std::move(keys)] = std::move(text);
+}
+
+UserDictionary::ShortcutMatch UserDictionary::MatchShortcut(std::wstring_view keys) const {
+  ShortcutMatch match;
+  // Shortcuts starting with `keys` follow it in sorted order.
+  for (auto it = shortcuts_.lower_bound(keys);
+       it != shortcuts_.end() && it->first.starts_with(keys); ++it) {
+    if (it->first.size() == keys.size()) {
+      match.text = &it->second;
+    } else {
+      match.longer = true;
+      break;
+    }
+  }
+  return match;
+}
+
 bool UserDictionary::HasPhrase(std::span<const Syllable> reading, std::wstring_view text) const {
   auto it = phraseIndex_.find(TonelessKey(reading));
   if (it == phraseIndex_.end()) return false;

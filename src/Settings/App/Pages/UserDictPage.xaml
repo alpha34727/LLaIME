@@ -63,14 +63,16 @@
       <Grid Grid.Row="1" Padding="16,0,16,0" ColumnSpacing="12">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="2*" />
-          <ColumnDefinition Width="3*" />
+          <ColumnDefinition Width="2.6*" />
+          <ColumnDefinition Width="1.2*" />
           <ColumnDefinition Width="1.2*" />
           <ColumnDefinition Width="1.2*" />
         </Grid.ColumnDefinitions>
         <Button Content="詞" Tag="text" Style="{StaticResource ColumnHeaderButtonStyle}" Click="PhraseSort_Click" />
         <Button Grid.Column="1" Content="注音" Tag="reading" Style="{StaticResource ColumnHeaderButtonStyle}" Click="PhraseSort_Click" />
-        <Button Grid.Column="2" Content="來源" Tag="kind" Style="{StaticResource ColumnHeaderButtonStyle}" Click="PhraseSort_Click" />
-        <Button Grid.Column="3" Content="加入日期" Tag="created" Style="{StaticResource ColumnHeaderButtonStyle}" Click="PhraseSort_Click" />
+        <Button Grid.Column="2" Content="快捷鍵" Tag="shortcut" Style="{StaticResource ColumnHeaderButtonStyle}" Click="PhraseSort_Click" />
+        <Button Grid.Column="3" Content="來源" Tag="kind" Style="{StaticResource ColumnHeaderButtonStyle}" Click="PhraseSort_Click" />
+        <Button Grid.Column="4" Content="加入日期" Tag="created" Style="{StaticResource ColumnHeaderButtonStyle}" Click="PhraseSort_Click" />
       </Grid>
 
       <Grid Grid.Row="2">
@@ -83,16 +85,19 @@
               <Grid ColumnSpacing="12" Padding="0,6">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="2*" />
-                  <ColumnDefinition Width="3*" />
+                  <ColumnDefinition Width="2.6*" />
+                  <ColumnDefinition Width="1.2*" />
                   <ColumnDefinition Width="1.2*" />
                   <ColumnDefinition Width="1.2*" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="{x:Bind Text}" FontSize="16" TextTrimming="CharacterEllipsis" />
                 <TextBlock Grid.Column="1" Text="{x:Bind Reading}" TextTrimming="CharacterEllipsis"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
-                <TextBlock Grid.Column="2" Text="{x:Bind KindText}" VerticalAlignment="Center"
+                <TextBlock Grid.Column="2" Text="{x:Bind ShortcutText}" VerticalAlignment="Center"
+                           FontFamily="Consolas" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <TextBlock Grid.Column="3" Text="{x:Bind KindText}" VerticalAlignment="Center"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                <TextBlock Grid.Column="3" Text="{x:Bind CreatedText}" VerticalAlignment="Center"
+                <TextBlock Grid.Column="4" Text="{x:Bind CreatedText}" VerticalAlignment="Center"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
               </Grid>
             </DataTemplate>

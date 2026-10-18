@@ -80,6 +80,7 @@ void TextService::OnUserDictResponse(const protocol::UserDictResponse& response)
     for (const auto& s : response.selections) {
       dict->AddSelection(ToSyllables(s.reading), s.text, s.prev, s.weight);
     }
+    for (const auto& s : response.shortcuts) dict->AddShortcut(s.keys, s.text);
     std::lock_guard<std::mutex> lock(Shared().mutex);
     Shared().version = response.version;
     Shared().learningEnabled = response.learningEnabled;

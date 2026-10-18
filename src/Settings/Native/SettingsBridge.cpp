@@ -13,6 +13,7 @@
 #include <objbase.h>
 
 #include <algorithm>
+#include <cwctype>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -126,8 +127,10 @@ std::vector<Syllable> FromWire(const proto::Reading& reading) {
 }
 
 // `key` is the stored form (FormatReading), as the lists return it.
+// An empty key is a phrase typed by its shortcut alone.
 std::optional<proto::Reading> FromKey(const wchar_t* key) {
-  auto parsed = ParseReading(key ? key : L"");
+  if (!key || !*key) return proto::Reading();
+  auto parsed = ParseReading(key);
   if (!parsed) return std::nullopt;
   return Wire(*parsed);
 }
@@ -444,6 +447,7 @@ LLAIME_API wchar_t* LLaime_ListPhrases() {
           .Field(L"text", row.text)
           .Field(L"kind", row.kind)
           .Field(L"created", row.created)
+          .Field(L"shortcut", row.shortcut)
           .EndObject();
     }
   }
@@ -451,26 +455,72 @@ LLAIME_API wchar_t* LLaime_ListPhrases() {
   return Return(json);
 }
 
-LLAIME_API wchar_t* LLaime_AddPhrase(const wchar_t* reading, const wchar_t* text) {
-  std::lock_guard<std::mutex> lock(B().mutex);
-  auto parsed = ParseWrittenReading(reading ? reading : L"");
-  if (!parsed) return Error(L"注音格式不正確");
-  UserStore* store = Store();
-  if (!store) return Error(L"無法開啟使用者詞庫");
-  if (!store->AddPhrase(Wire(*parsed), text ? text : L"")) return Error(L"無法加入這個詞");
+// Checks what the add / edit dialog entered: a written reading (may be empty when a shortcut
+// is given) and a shortcut ("" or letters and digits, not used by another phrase). On success
+// `*reading` and `*shortcut` hold the stored forms.
+std::optional<std::wstring> CheckPhrase(UserStore* store, const wchar_t* written,
+                                        const wchar_t* text, const wchar_t* shortcutIn,
+                                        const std::wstring& ownText, proto::Reading* reading,
+                                        std::wstring* shortcut) {
+  shortcut->clear();
+  for (const wchar_t* p = shortcutIn ? shortcutIn : L""; *p; ++p) {
+    if (!iswspace(*p)) shortcut->push_back(static_cast<wchar_t>(towlower(*p)));
+  }
+  if (!shortcut->empty() && !UserDictionary::ValidShortcut(*shortcut)) {
+    return L"快捷鍵只能用英文字母與數字（最多 16 個）";
+  }
+  const std::wstring w = written ? written : L"";
+  if (w.find_first_not_of(L" 	") == std::wstring::npos) {
+    if (shortcut->empty()) return L"請輸入注音，或指定快捷鍵";
+    reading->clear();
+  } else {
+    auto parsed = ParseWrittenReading(w);
+    if (!parsed || parsed->size() > Lexicon::kMaxPhraseLength) return L"注音格式不正確";
+    *reading = Wire(*parsed);
+  }
+  if (!text || !*text) return L"請輸入詞";
+  if (const std::wstring owner = store->ShortcutOwner(*shortcut);
+      !owner.empty() && owner != ownText) {
+    return L"快捷鍵「" + *shortcut + L"」已經用在「" + owner + L"」";
+  }
+  return std::nullopt;
+}
+
+wchar_t* Ok() {
   JsonWriter json;
   json.BeginObject().Field(L"ok", true).EndObject();
   return Return(json);
 }
 
-LLAIME_API int LLaime_UpdatePhrase(const wchar_t* key, const wchar_t* text,
-                                   const wchar_t* newReading, const wchar_t* newText) {
+LLAIME_API wchar_t* LLaime_AddPhrase(const wchar_t* reading, const wchar_t* text,
+                                     const wchar_t* shortcut) {
   std::lock_guard<std::mutex> lock(B().mutex);
-  auto old = FromKey(key);
-  auto parsed = ParseWrittenReading(newReading ? newReading : L"");
   UserStore* store = Store();
-  if (!old || !parsed || !store) return 0;
-  return store->UpdatePhrase(*old, text, Wire(*parsed), newText) ? 1 : 0;
+  if (!store) return Error(L"無法開啟使用者詞庫");
+  proto::Reading wire;
+  std::wstring keys;
+  if (auto error = CheckPhrase(store, reading, text, shortcut, text ? text : L"", &wire, &keys)) {
+    return Error(*error);
+  }
+  if (!store->AddPhrase(wire, text, 0, keys)) return Error(L"無法加入這個詞");
+  return Ok();
+}
+
+LLAIME_API wchar_t* LLaime_UpdatePhrase(const wchar_t* key, const wchar_t* text,
+                                        const wchar_t* newReading, const wchar_t* newText,
+                                        const wchar_t* newShortcut) {
+  std::lock_guard<std::mutex> lock(B().mutex);
+  UserStore* store = Store();
+  auto old = FromKey(key);
+  if (!store || !old) return Error(L"無法開啟使用者詞庫");
+  proto::Reading wire;
+  std::wstring keys;
+  if (auto error = CheckPhrase(store, newReading, newText, newShortcut, text ? text : L"", &wire,
+                               &keys)) {
+    return Error(*error);
+  }
+  if (!store->UpdatePhrase(*old, text, wire, newText, keys)) return Error(L"無法儲存這個詞");
+  return Ok();
 }
 
 LLAIME_API int LLaime_RemovePhrase(const wchar_t* key, const wchar_t* text) {
@@ -566,6 +616,7 @@ LLAIME_API int LLaime_ExportPhrases(const wchar_t* path, int includeLearned) {
   int count = 0;
   for (const auto& row : store->ListPhrases()) {
     if (row.kind != 0 && !includeLearned) continue;
+    if (row.reading.empty()) continue;  // typed by shortcut only: the format has no place for it
     std::wstring reading;
     for (Syllable s : FromWire(row.reading)) {
       if (!reading.empty()) reading += L'-';
