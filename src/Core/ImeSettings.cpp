@@ -71,6 +71,12 @@ ImeSettings LoadImeSettings() {
   }
   settings.userLexiconDir = ReadString(key, L"UserLexiconDir", L"");
   settings.layout = ReadString(key, L"Layout", L"standard");
+  DWORD contextChars = kDefaultContextChars;
+  bytes = sizeof(contextChars);
+  if (RegGetValueW(key, nullptr, L"ContextChars", RRF_RT_REG_DWORD, nullptr, &contextChars,
+                   &bytes) == ERROR_SUCCESS) {
+    settings.contextChars = contextChars > kMaxContextChars ? kMaxContextChars : contextChars;
+  }
   DWORD generation = 0;
   bytes = sizeof(generation);
   RegGetValueW(key, nullptr, L"Generation", RRF_RT_REG_DWORD, nullptr, &generation, &bytes);
@@ -106,6 +112,11 @@ bool SaveImeSettings(const ImeSettings& settings) {
   bool ok = setString(L"DisabledLexicons", multi, REG_MULTI_SZ) &&
             setString(L"UserLexiconDir", settings.userLexiconDir, REG_SZ) &&
             setString(L"Layout", settings.layout, REG_SZ);
+  const DWORD contextChars = settings.contextChars > kMaxContextChars ? kMaxContextChars
+                                                                      : settings.contextChars;
+  ok = ok && RegSetValueExW(key, L"ContextChars", 0, REG_DWORD,
+                            reinterpret_cast<const BYTE*>(&contextChars),
+                            sizeof(contextChars)) == ERROR_SUCCESS;
   // A new value every time, whatever the previous one was (another process may have saved).
   DWORD generation = GetTickCount() | 1;
   if (generation == ReadSettingsGeneration()) generation += 2;

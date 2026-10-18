@@ -42,6 +42,13 @@
         </ComboBox>
       </tk:SettingsCard>
 
+      <tk:SettingsCard Header="參考的前文字數"
+                       Description="選字時參考游標前多少個字（0 到 128）。字數越多越能判斷語意，但每次選字稍慢；0 表示完全不參考前文。">
+        <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE8D2;" /></tk:SettingsCard.HeaderIcon>
+        <NumberBox x:Name="ContextBox" Minimum="0" Maximum="128" SmallChange="8" LargeChange="32"
+                   SpinButtonPlacementMode="Inline" Width="140" ValueChanged="Context_Changed" />
+      </tk:SettingsCard>
+
       <tk:SettingsExpander x:Name="ModelExpander" Header="大語言模型" IsExpanded="True"
                            Description="GGUF 格式的因果語言模型。台灣 LoRA 版以台灣正體語料微調，選字較道地。">
         <tk:SettingsExpander.HeaderIcon><FontIcon Glyph="&#xE8F1;" /></tk:SettingsExpander.HeaderIcon>

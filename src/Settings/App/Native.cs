@@ -56,6 +56,11 @@ internal static class Native
     public static bool MakeManual(PhraseInfo phrase) => LLaime_MakeManual(phrase.Key, phrase.Text) != 0;
     public static List<SelectionInfo> ListSelections() => Parse<List<SelectionInfo>>(LLaime_ListSelections()) ?? [];
     public static bool RemoveSelection(SelectionInfo s) => LLaime_RemoveSelection(s.Key, s.Text, s.Prev) != 0;
+    public static int ContextChars
+    {
+        get => LLaime_GetContextChars();
+        set => LLaime_SetContextChars(value);
+    }
     public static bool ClearLearning() => LLaime_ClearLearning() != 0;
     public static bool LearningEnabled
     {
@@ -90,6 +95,8 @@ internal static class Native
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int LLaime_MakeManual(string key, string text);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern string LLaime_ListSelections();
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int LLaime_RemoveSelection(string key, string text, string prev);
+    [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int LLaime_GetContextChars();
+    [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int LLaime_SetContextChars(int chars);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int LLaime_ClearLearning();
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int LLaime_GetLearningEnabled();
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int LLaime_SetLearningEnabled(int enabled);

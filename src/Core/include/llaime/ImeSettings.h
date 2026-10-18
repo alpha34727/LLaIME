@@ -10,13 +10,19 @@ namespace llaime {
 //   UserLexiconDir    REG_SZ        where imported layers live (%LOCALAPPDATA%\LLaIME\lexicons;
 //                                   a TIP in an AppContainer cannot resolve that folder itself)
 //   Layout            REG_SZ        Bopomofo keyboard layout: "standard"
+//   ContextChars      REG_DWORD     how many characters before the composition are given to
+//                                   the ranker as context (0: none)
 //   Generation        REG_DWORD     changes with every save; TIPs reload when it moves
 // The key and the lexicon folder grant ALL APPLICATION PACKAGES read access, so the TIP works
 // in packaged and UWP apps too. Engine settings (model, device) stay in engine.ini.
+inline constexpr uint32_t kDefaultContextChars = 32;
+inline constexpr uint32_t kMaxContextChars = 128;
+
 struct ImeSettings {
   std::vector<std::wstring> disabledLexicons;
   std::wstring userLexiconDir;
   std::wstring layout = L"standard";
+  uint32_t contextChars = kDefaultContextChars;
   uint32_t generation = 0;
 };
 

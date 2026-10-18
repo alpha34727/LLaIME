@@ -566,6 +566,17 @@ LLAIME_API int LLaime_RemoveSelection(const wchar_t* key, const wchar_t* text,
   return reading && store && store->RemoveSelection(*reading, text, prev ? prev : L"") ? 1 : 0;
 }
 
+LLAIME_API int LLaime_GetContextChars() {
+  return static_cast<int>(LoadImeSettings().contextChars);
+}
+
+LLAIME_API int LLaime_SetContextChars(int chars) {
+  std::lock_guard<std::mutex> lock(B().mutex);
+  ImeSettings settings = LoadImeSettings();
+  settings.contextChars = static_cast<uint32_t>(chars < 0 ? 0 : chars);
+  return Save(settings) ? 1 : 0;
+}
+
 LLAIME_API int LLaime_ClearLearning() {
   std::lock_guard<std::mutex> lock(B().mutex);
   UserStore* store = Store();

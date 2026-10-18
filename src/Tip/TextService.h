@@ -14,6 +14,8 @@ namespace llaime {
 
 // Lexicons.cpp: the process-wide lexicon with the layers the settings enable.
 std::shared_ptr<const Lexicon> CurrentLexicon();
+// How many characters before the composition the ranker gets as context (the settings).
+uint32_t CurrentContextChars();
 
 class CandidateWindow;
 class LangBarButton;

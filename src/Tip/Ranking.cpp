@@ -30,7 +30,6 @@ constexpr double kVariantPenalty = 4.0;
 // Open candidates at or above this probability are listed by probability.
 constexpr double kRankedProbability = 0.01;
 // Characters before the composition given to the model as context.
-constexpr LONG kContextChars = 32;
 
 double CombinedScore(double lm, const Sentence& sentence, const Composer& composer,
                      const UserDictionary* user) {
@@ -44,14 +43,16 @@ double CombinedScore(double lm, const Sentence& sentence, const Composer& compos
 void TextService::ReadContextBefore(ITfContext*, TfEditCookie ec, ITfRange* compositionRange) {
   contextText_.clear();
   if (privateMode_) return;  // never send what was typed into a private field
+  const LONG contextChars = static_cast<LONG>(CurrentContextChars());
+  if (contextChars == 0) return;
   ComPtr<ITfRange> before;
   if (FAILED(compositionRange->Clone(&before))) return;
   before->Collapse(ec, TF_ANCHOR_START);
   LONG shifted = 0;
-  before->ShiftStart(ec, -kContextChars, &shifted, nullptr);
-  wchar_t buf[kContextChars + 1] = {};
+  before->ShiftStart(ec, -contextChars, &shifted, nullptr);
+  std::wstring buf(contextChars, L'\0');
   ULONG got = 0;
-  if (SUCCEEDED(before->GetText(ec, 0, buf, kContextChars, &got))) contextText_.assign(buf, got);
+  if (SUCCEEDED(before->GetText(ec, 0, buf.data(), contextChars, &got))) contextText_.assign(buf, 0, got);
 }
 
 void TextService::RequestRanking() {

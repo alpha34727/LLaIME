@@ -29,6 +29,7 @@ public sealed partial class ModelPage : Page
         ShowDownloads();
         layaDir_ = Native.ReadEngineSetting("laya", "path");
         LayaCard.Description = layaDir_.Length > 0 ? layaDir_ : "尚未設定";
+        ContextBox.Value = Native.ContextChars;
         ThreadsBox.Value = int.TryParse(Native.ReadEngineSetting("model", "threads"), out var t) ? t : 0;
         DeviceBox.Items.Clear();
         DeviceBox.Items.Add("自動");
@@ -439,6 +440,13 @@ public sealed partial class ModelPage : Page
     {
         if (ReferenceEquals(sender, ModelBox)) UpdateModelPath();
         if (!loading_) ApplyButton.IsEnabled = true;
+    }
+
+    // Takes effect at once: the IME reads it from the registry at the next composition.
+    private void Context_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        if (double.IsNaN(sender.Value)) sender.Value = 32;
+        if (!loading_) Native.ContextChars = (int)sender.Value;
     }
 
     private void Threads_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
