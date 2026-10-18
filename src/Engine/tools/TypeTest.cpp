@@ -2,8 +2,11 @@
 // saving (Ctrl+S) while a composition is open, the way an autosave lands mid-typing, and checks
 // that the program is still alive after every round.
 //
-//   LLaIME.TypeTest --pid <process id> --title <part of the window title> [--rounds 10]
-//                   [--no-save]
+//   LLaIME.TypeTest --title <part of the window title> [--pid <process id>] [--rounds 10]
+//                   [--no-save] [--punct]
+//
+// --punct types long runs of punctuation (Shift and Ctrl keys, keys outside the layout) mixed
+// with syllables instead of three words.
 //
 // Keys go only to the window of that process whose title contains --title (Word keeps every
 // open document in one process, so the process alone does not say which window), and only
@@ -37,9 +40,10 @@ BOOL CALLBACK FindWindowOf(HWND hwnd, LPARAM lp) {
   GetWindowThreadProcessId(hwnd, &pid);
   wchar_t title[512] = {};
   GetWindowTextW(hwnd, title, 512);
-  if (pid == t->pid && IsWindowVisible(hwnd) && !GetWindow(hwnd, GW_OWNER) &&
+  if ((t->pid == 0 || pid == t->pid) && IsWindowVisible(hwnd) && !GetWindow(hwnd, GW_OWNER) &&
       !t->title.empty() && wcsstr(title, t->title.c_str())) {
     t->hwnd = hwnd;
+    t->pid = pid;
     return FALSE;
   }
   return TRUE;
@@ -52,8 +56,43 @@ HWND g_target = nullptr;
 // That very window, not just any window of the process.
 bool InFront(DWORD) { return GetForegroundWindow() == g_target; }
 
+struct Stroke {
+  WORD vk;
+  bool shift = false;
+  bool ctrl = false;
+};
+
+void Press(const Stroke& k) {
+  INPUT in[6] = {};
+  UINT n = 0;
+  auto add = [&](WORD vk, bool up) {
+    in[n].type = INPUT_KEYBOARD;
+    in[n].ki.wVk = vk;
+    in[n].ki.dwFlags = up ? KEYEVENTF_KEYUP : 0;
+    ++n;
+  };
+  if (k.ctrl) add(VK_CONTROL, false);
+  if (k.shift) add(VK_SHIFT, false);
+  add(k.vk, false);
+  add(k.vk, true);
+  if (k.shift) add(VK_SHIFT, true);
+  if (k.ctrl) add(VK_CONTROL, true);
+  SendInput(n, in, sizeof(INPUT));
+  Sleep(60);
+}
+
 // ㄧˋㄧˋ ㄕˋㄧㄢˋ ㄉㄧㄢˋㄋㄠˇ: three words, left composing.
-const WORD kReading[] = {'U', '4', 'U', '4', 'G', '4', 'U', '0', '4', '2', 'U', '0', '4', 'S', 'L', '3'};
+const Stroke kReading[] = {{'U'}, {'4'}, {'U'}, {'4'}, {'G'}, {'4'}, {'U'}, {'0'},
+                           {'4'}, {'2'}, {'U'}, {'0'}, {'4'}, {'S'}, {'L'}, {'3'}};
+// Punctuation the way people type it in Bopomofo: Ctrl+，。、；：？！, Shift+symbols, and the
+// keys outside the layout ([ ] ' = `), between syllables.
+const Stroke kPunct[] = {
+    {VK_OEM_COMMA, false, true}, {VK_OEM_PERIOD, false, true}, {VK_OEM_4}, {VK_OEM_6},
+    {'U'}, {'4'}, {VK_OEM_6}, {VK_OEM_COMMA, false, true}, {'1', true}, {'2', true},
+    {'3', true}, {VK_OEM_2, true}, {VK_OEM_1, true}, {VK_OEM_7}, {VK_OEM_PLUS}, {VK_OEM_3},
+    {'9', true}, {'0', true}, {'G'}, {'4'}, {VK_OEM_PERIOD, false, true}, {VK_OEM_4, true},
+    {VK_OEM_6, true}, {VK_OEM_1, false, true}, {VK_OEM_2, true, true}, {'1', true, true},
+    {VK_OEM_7, false, true}, {VK_OEM_5}, {VK_OEM_5, true}, {VK_OEM_MINUS, true}};
 
 }  // namespace
 
@@ -63,15 +102,19 @@ int wmain(int argc, wchar_t** argv) {
   Target target{0};
   int rounds = 10;
   bool save = true;
+  bool punct = false;
   for (int i = 1; i < argc; ++i) {
     const std::wstring a = argv[i];
     if (a == L"--pid" && i + 1 < argc) target.pid = _wtoi(argv[++i]);
     if (a == L"--rounds" && i + 1 < argc) rounds = _wtoi(argv[++i]);
     if (a == L"--title" && i + 1 < argc) target.title = argv[++i];
     if (a == L"--no-save") save = false;
+    if (a == L"--punct") punct = true;
   }
-  HANDLE process = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, target.pid);
   EnumWindows(FindWindowOf, reinterpret_cast<LPARAM>(&target));
+  HANDLE process =
+      target.hwnd ? OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, target.pid)
+                  : nullptr;
   if (!process || !target.hwnd) {
     fwprintf(stderr, L"no window of process %lu with \"%ls\" in its title\n", target.pid,
              target.title.c_str());
@@ -105,9 +148,19 @@ int wmain(int argc, wchar_t** argv) {
   int completed = 0;
   const wchar_t* stop = nullptr;
   for (int r = 0; r < rounds && !stop; ++r) {
-    for (WORD vk : kReading) {
-      if (!InFront(target.pid)) { stop = L"the window lost the focus; stopped typing"; break; }
-      Key(vk);
+    if (punct) {
+      // Two runs, so the composition passes the 40-element commit point.
+      for (int run = 0; run < 2 && !stop; ++run) {
+        for (const Stroke& k : kPunct) {
+          if (!InFront(target.pid)) { stop = L"the window lost the focus; stopped typing"; break; }
+          Press(k);
+        }
+      }
+    } else {
+      for (const Stroke& k : kReading) {
+        if (!InFront(target.pid)) { stop = L"the window lost the focus; stopped typing"; break; }
+        Press(k);
+      }
     }
     if (stop) break;
     Pump(300);  // the model's reranking arrives meanwhile

@@ -2,6 +2,7 @@
 
 #include "EditSession.h"
 #include "Globals.h"
+#include "Guard.h"
 #include "TextService.h"
 #include "ui/CandidateWindow.h"
 
@@ -219,12 +220,14 @@ void TextService::ResetState() {
 }
 
 STDMETHODIMP TextService::OnCompositionTerminated(TfEditCookie, ITfComposition* composition) {
-  // The app ended the composition (e.g. focus moved); its text stays in the document. A
-  // composition we already dropped may report late; it must not end the current one.
-  if (composition && composition_ && composition != composition_.Get()) return S_OK;
-  LearnFromCommit(composer_.size());
-  ResetState();
-  return S_OK;
+  return Guarded("OnCompositionTerminated", HRESULT(E_FAIL), [&]() -> HRESULT {
+    // The app ended the composition (e.g. focus moved); its text stays in the document. A
+    // composition we already dropped may report late; it must not end the current one.
+    if (composition && composition_ && composition != composition_.Get()) return S_OK;
+    LearnFromCommit(composer_.size());
+    ResetState();
+    return S_OK;
+  });
 }
 
 bool TextService::GetTextRect(ITfContext* context, TfEditCookie ec, size_t begin, size_t end,

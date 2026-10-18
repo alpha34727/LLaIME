@@ -15,6 +15,7 @@ add_executable(LLaIME.CoreTests
   ComposerTests.cpp
   UserDictionaryTests.cpp
   LexiconBuilderTests.cpp
+  ComposerFuzzTests.cpp
 )
 target_link_libraries(LLaIME.CoreTests PRIVATE LLaIME.Core GTest::gtest_main)
 target_compile_definitions(LLaIME.CoreTests PRIVATE

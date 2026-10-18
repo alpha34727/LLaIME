@@ -45,7 +45,7 @@ function Write-Log([string] $text) {
 }
 
 function Get-Role([int] $id) {
-  $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$id" -ErrorAction SilentlyContinue).CommandLine
+  $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$id" -OperationTimeoutSec 5 -ErrorAction SilentlyContinue).CommandLine
   if (-not $cmd) { return 'unknown' }
   if ($cmd -match '--type=([\w-]+)') { return $Matches[1] }
   return 'main'
@@ -58,37 +58,54 @@ function Recent-Tdr {
   return 'no'
 }
 
+# Whether LLaIME.Tip.dll is loaded, from a fresh process object (Process.Modules is cached).
+function Has-Tip([int] $id) {
+  try {
+    return [bool]([System.Diagnostics.Process]::GetProcessById($id).Modules |
+      Where-Object ModuleName -eq 'LLaIME.Tip.dll')
+  } catch { return $false }
+}
+
 $watched = @{}  # pid -> @{Process; Role; Tip}
+$lastTipCheck = [DateTime]::MinValue
 Write-Log "watching $Name.exe (log: $Log)"
 while ($true) {
-  foreach ($p in Get-Process -Name $Name -ErrorAction SilentlyContinue) {
-    if ($watched.ContainsKey($p.Id)) { continue }
-    if ($PathMatch -and $p.Path -notmatch $PathMatch) { $watched[$p.Id] = $null; continue }
-    try { $null = $p.Handle } catch { continue }  # keep a handle so the exit code stays readable
-    $tip = $false
-    try { $tip = [bool]($p.Modules | Where-Object ModuleName -eq 'LLaIME.Tip.dll') } catch {}
-    $watched[$p.Id] = @{ Process = $p; Role = (Get-Role $p.Id); Tip = $tip }
-    if ($watched[$p.Id].Role -eq 'main') { Write-Log ("started  pid {0} (main)" -f $p.Id) }
-  }
-  foreach ($id in @($watched.Keys)) {
-    $w = $watched[$id]
-    if (-not $w) {
-      if (-not (Get-Process -Id $id -ErrorAction SilentlyContinue)) { $watched.Remove($id) }
-      continue
+  try {
+    foreach ($p in Get-Process -Name $Name -ErrorAction SilentlyContinue) {
+      if ($watched.ContainsKey($p.Id)) { continue }
+      if ($PathMatch -and $p.Path -notmatch $PathMatch) { $watched[$p.Id] = $null; continue }
+      try { $null = $p.Handle } catch { continue }  # keep a handle so the exit code stays readable
+      $role = Get-Role $p.Id
+      $watched[$p.Id] = @{ Process = $p; Role = $role; Tip = $false }
+      if ($role -eq 'main') { Write-Log ("started  pid {0} (main)" -f $p.Id) }
     }
-    $p = $w.Process
-    # LLaIME loads when the user first types in that process; look again until it is there.
-    if (-not $w.Tip -and -not $p.HasExited) {
-      try { $w.Tip = [bool]($p.Modules | Where-Object ModuleName -eq 'LLaIME.Tip.dll') } catch {}
+    # Text input (and so LLaIME) lives in the main process; it loads on the first keystroke.
+    $checkTip = ((Get-Date) - $lastTipCheck).TotalSeconds -ge 5
+    if ($checkTip) { $lastTipCheck = Get-Date }
+    foreach ($id in @($watched.Keys)) {
+      $w = $watched[$id]
+      if (-not $w) {
+        if (-not (Get-Process -Id $id -ErrorAction SilentlyContinue)) { $watched.Remove($id) }
+        continue
+      }
+      $p = $w.Process
+      if ($checkTip -and $w.Role -eq 'main' -and -not $w.Tip -and -not $p.HasExited) {
+        if (Has-Tip $id) {
+          $w.Tip = $true
+          Write-Log ("LLaIME loaded in pid {0}" -f $id)
+        }
+      }
+      if (-not $p.HasExited) { continue }
+      $code = $p.ExitCode
+      $meaning = if ($codes.ContainsKey($code)) { $codes[$code] } else { 'exit code 0x{0:X8}' -f $code }
+      if ($w.Role -eq 'main' -or $code -ne 0) {
+        Write-Log ("exited   pid {0} ({1}): {2}; LLaIME loaded: {3}; display driver reset in last 2 min: {4}" -f
+          $id, $w.Role, $meaning, $(if ($w.Tip) { 'yes' } else { 'no' }), (Recent-Tdr))
+      }
+      $watched.Remove($id)
     }
-    if (-not $p.HasExited) { continue }
-    $code = $p.ExitCode
-    $meaning = if ($codes.ContainsKey($code)) { $codes[$code] } else { 'exit code 0x{0:X8}' -f $code }
-    if ($w.Role -eq 'main' -or $code -ne 0) {
-      Write-Log ("exited   pid {0} ({1}): {2}; LLaIME loaded: {3}; display driver reset in last 2 min: {4}" -f
-        $id, $w.Role, $meaning, $(if ($w.Tip) { 'yes' } else { 'no' }), (Recent-Tdr))
-    }
-    $watched.Remove($id)
+  } catch {
+    Write-Log ("watcher error: {0}" -f $_)
   }
   Start-Sleep -Seconds 2
 }

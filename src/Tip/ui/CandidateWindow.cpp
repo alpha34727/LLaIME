@@ -7,6 +7,7 @@
 #include <cmath>
 
 #include "Globals.h"
+#include "Guard.h"
 #include "ui/Graphics.h"
 
 using Microsoft::WRL::ComPtr;
@@ -515,9 +516,11 @@ void CandidateWindow::PaintFooter(ID2D1SolidColorBrush* brush, float width, floa
 }
 
 LRESULT CALLBACK CandidateWindow::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-  auto* self = reinterpret_cast<CandidateWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-  if (self) return self->HandleMessage(msg, wp, lp);
-  return DefWindowProcW(hwnd, msg, wp, lp);
+  return Guarded("CandidateWindow::WndProc", LRESULT(0), [&]() -> LRESULT {
+    auto* self = reinterpret_cast<CandidateWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    if (self) return self->HandleMessage(msg, wp, lp);
+    return DefWindowProcW(hwnd, msg, wp, lp);
+  });
 }
 
 LRESULT CandidateWindow::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {

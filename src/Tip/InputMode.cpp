@@ -5,6 +5,7 @@
 
 #include "EditSession.h"
 #include "Globals.h"
+#include "Guard.h"
 #include "LangBarButton.h"
 #include "TextService.h"
 #include "ui/ThemeWatcher.h"
@@ -162,21 +163,23 @@ void TextService::UninitLangBar() {
 }
 
 STDMETHODIMP TextService::OnChange(REFGUID guid) {
-  if (updatingCompartment_) return S_OK;
-  DWORD value = 0;
-  if (guid == GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION) {
-    if (ReadDword(GetCompartment(threadMgr_.Get(), guid).Get(), &value)) {
-      chineseMode_ = (value & TF_CONVERSIONMODE_NATIVE) != 0;
-      fullShape_ = (value & TF_CONVERSIONMODE_FULLSHAPE) != 0;
+  return Guarded("OnChange", HRESULT(E_FAIL), [&]() -> HRESULT {
+    if (updatingCompartment_) return S_OK;
+    DWORD value = 0;
+    if (guid == GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION) {
+      if (ReadDword(GetCompartment(threadMgr_.Get(), guid).Get(), &value)) {
+        chineseMode_ = (value & TF_CONVERSIONMODE_NATIVE) != 0;
+        fullShape_ = (value & TF_CONVERSIONMODE_FULLSHAPE) != 0;
+      }
+    } else if (guid == GUID_COMPARTMENT_KEYBOARD_OPENCLOSE) {
+      if (ReadDword(GetCompartment(threadMgr_.Get(), guid).Get(), &value) && !value) {
+        chineseMode_ = false;
+      }
     }
-  } else if (guid == GUID_COMPARTMENT_KEYBOARD_OPENCLOSE) {
-    if (ReadDword(GetCompartment(threadMgr_.Get(), guid).Get(), &value) && !value) {
-      chineseMode_ = false;
-    }
-  }
-  if (!chineseMode_) CloseCandidates();
-  if (langBarButton_) langBarButton_->Refresh();
-  return S_OK;
+    if (!chineseMode_) CloseCandidates();
+    if (langBarButton_) langBarButton_->Refresh();
+    return S_OK;
+  });
 }
 
 }  // namespace llaime

@@ -4,6 +4,7 @@
 #include "DisplayAttribute.h"
 #include "EditSession.h"
 #include "Globals.h"
+#include "Guard.h"
 #include "ui/CandidateWindow.h"
 #include "EngineClient.h"
 #include "ui/ThemeWatcher.h"
@@ -31,26 +32,28 @@ TextService::TextService()
 TextService::~TextService() { DllRelease(); }
 
 STDMETHODIMP TextService::QueryInterface(REFIID riid, void** ppv) {
-  if (!ppv) return E_INVALIDARG;
-  *ppv = nullptr;
-  if (riid == IID_IUnknown || riid == IID_ITfTextInputProcessor ||
-      riid == IID_ITfTextInputProcessorEx) {
-    *ppv = static_cast<ITfTextInputProcessorEx*>(this);
-  } else if (riid == IID_ITfThreadMgrEventSink) {
-    *ppv = static_cast<ITfThreadMgrEventSink*>(this);
-  } else if (riid == IID_ITfKeyEventSink) {
-    *ppv = static_cast<ITfKeyEventSink*>(this);
-  } else if (riid == IID_ITfCompositionSink) {
-    *ppv = static_cast<ITfCompositionSink*>(this);
-  } else if (riid == IID_ITfDisplayAttributeProvider) {
-    *ppv = static_cast<ITfDisplayAttributeProvider*>(this);
-  } else if (riid == IID_ITfCompartmentEventSink) {
-    *ppv = static_cast<ITfCompartmentEventSink*>(this);
-  } else {
-    return E_NOINTERFACE;
-  }
-  AddRef();
-  return S_OK;
+  return Guarded("QueryInterface", HRESULT(E_FAIL), [&]() -> HRESULT {
+    if (!ppv) return E_INVALIDARG;
+    *ppv = nullptr;
+    if (riid == IID_IUnknown || riid == IID_ITfTextInputProcessor ||
+        riid == IID_ITfTextInputProcessorEx) {
+      *ppv = static_cast<ITfTextInputProcessorEx*>(this);
+    } else if (riid == IID_ITfThreadMgrEventSink) {
+      *ppv = static_cast<ITfThreadMgrEventSink*>(this);
+    } else if (riid == IID_ITfKeyEventSink) {
+      *ppv = static_cast<ITfKeyEventSink*>(this);
+    } else if (riid == IID_ITfCompositionSink) {
+      *ppv = static_cast<ITfCompositionSink*>(this);
+    } else if (riid == IID_ITfDisplayAttributeProvider) {
+      *ppv = static_cast<ITfDisplayAttributeProvider*>(this);
+    } else if (riid == IID_ITfCompartmentEventSink) {
+      *ppv = static_cast<ITfCompartmentEventSink*>(this);
+    } else {
+      return E_NOINTERFACE;
+    }
+    AddRef();
+    return S_OK;
+  });
 }
 
 STDMETHODIMP_(ULONG) TextService::AddRef() { return InterlockedIncrement(&refCount_); }
@@ -62,37 +65,40 @@ STDMETHODIMP_(ULONG) TextService::Release() {
 }
 
 STDMETHODIMP TextService::Activate(ITfThreadMgr* threadMgr, TfClientId clientId) {
-  return ActivateEx(threadMgr, clientId, 0);
+  return Guarded("Activate", HRESULT(E_FAIL), [&]() -> HRESULT {
+    return ActivateEx(threadMgr, clientId, 0);
+  });
 }
 
 STDMETHODIMP TextService::ActivateEx(ITfThreadMgr* threadMgr, TfClientId clientId, DWORD) {
-  threadMgr_ = threadMgr;
-  clientId_ = clientId;
+  return Guarded("ActivateEx", HRESULT(E_FAIL), [&]() -> HRESULT {
+    threadMgr_ = threadMgr;
+    clientId_ = clientId;
 
-  ComPtr<ITfCategoryMgr> categoryMgr;
-  if (SUCCEEDED(CoCreateInstance(CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER,
-                                 IID_PPV_ARGS(&categoryMgr)))) {
-    categoryMgr->RegisterGUID(GUID_DisplayAttributeInput, &inputAttributeAtom_);
-    categoryMgr->RegisterGUID(GUID_DisplayAttributeError, &errorAttributeAtom_);
-  }
+    ComPtr<ITfCategoryMgr> categoryMgr;
+    if (SUCCEEDED(CoCreateInstance(CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER,
+                                   IID_PPV_ARGS(&categoryMgr)))) {
+      categoryMgr->RegisterGUID(GUID_DisplayAttributeInput, &inputAttributeAtom_);
+      categoryMgr->RegisterGUID(GUID_DisplayAttributeError, &errorAttributeAtom_);
+    }
 
-  // Mouse actions arrive outside a key event, so they need their own edit sessions.
-  candidateWindow_ = std::make_unique<CandidateWindow>(CandidateWindow::Handlers{
-      [this](size_t index) {
-        if (!compositionContext_ || !composition_) return;
-        ComPtr<ITfContext> context = compositionContext_;
-        ComPtr<ITfComposition> composition = composition_;
-        ComPtr<TextService> self(this);
-        EditSession::Request(context.Get(), clientId_, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE,
-                             [self, context, composition, index](TfEditCookie ec) {
-                               if (self->composition_ == composition &&
-                                   self->compositionContext_ == context) {
-                                 self->SelectCandidate(context.Get(), ec, index);
-                               }
-                               return S_OK;
-                             });
-      },
-      [this] { OpenEmojiPanel(); },
+    // Mouse actions arrive outside a key event, so they need their own edit sessions.
+    candidateWindow_ = std::make_unique<CandidateWindow>(CandidateWindow::Handlers{
+        [this](size_t index) {
+          if (!compositionContext_ || !composition_) return;
+          ComPtr<ITfContext> context = compositionContext_;
+          ComPtr<ITfComposition> composition = composition_;
+          ComPtr<TextService> self(this);
+          EditSession::Request(context.Get(), clientId_, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE,
+                               [self, context, composition, index](TfEditCookie ec) {
+                                 if (self->composition_ == composition &&
+                                     self->compositionContext_ == context) {
+                                   self->SelectCandidate(context.Get(), ec, index);
+                                 }
+                                 return S_OK;
+                               });
+        },
+        [this] { OpenEmojiPanel(); },
   });
 
   engine_ = std::make_unique<EngineClient>(EngineClient::Handlers{
@@ -112,27 +118,30 @@ STDMETHODIMP TextService::ActivateEx(ITfThreadMgr* threadMgr, TfClientId clientI
   ComPtr<ITfDocumentMgr> focus;
   if (SUCCEEDED(threadMgr_->GetFocus(&focus))) RequestPrivacyUpdate(focus.Get());
   return S_OK;
+  });
 }
 
 STDMETHODIMP TextService::Deactivate() {
-  if (composition_ && compositionContext_) {
-    ComPtr<ITfContext> context = compositionContext_;
-    EditSession::Request(context.Get(), clientId_, TF_ES_SYNC | TF_ES_READWRITE,
-                         [this, context](TfEditCookie ec) {
-                           CommitAll(context.Get(), ec);
-                           return S_OK;
-                         });
-  }
-  ResetState();
-  engine_.reset();
-  candidateWindow_.reset();
-  UninitInputMode();
-  UninitLangBar();
-  UninitKeyEventSink();
-  UninitThreadMgrEventSink();
-  threadMgr_.Reset();
-  clientId_ = TF_CLIENTID_NULL;
-  return S_OK;
+  return Guarded("Deactivate", HRESULT(E_FAIL), [&]() -> HRESULT {
+    if (composition_ && compositionContext_) {
+      ComPtr<ITfContext> context = compositionContext_;
+      EditSession::Request(context.Get(), clientId_, TF_ES_SYNC | TF_ES_READWRITE,
+                           [this, context](TfEditCookie ec) {
+                             CommitAll(context.Get(), ec);
+                             return S_OK;
+                           });
+    }
+    ResetState();
+    engine_.reset();
+    candidateWindow_.reset();
+    UninitInputMode();
+    UninitLangBar();
+    UninitKeyEventSink();
+    UninitThreadMgrEventSink();
+    threadMgr_.Reset();
+    clientId_ = TF_CLIENTID_NULL;
+    return S_OK;
+  });
 }
 
 bool TextService::InitThreadMgrEventSink() {
@@ -152,54 +161,66 @@ void TextService::UninitThreadMgrEventSink() {
 
 STDMETHODIMP TextService::OnInitDocumentMgr(ITfDocumentMgr*) { return S_OK; }
 STDMETHODIMP TextService::OnUninitDocumentMgr(ITfDocumentMgr* docMgr) {
-  // The document is going away with our composition in it: forget it, never edit it.
-  ComPtr<ITfDocumentMgr> owner;
-  if (compositionContext_ && SUCCEEDED(compositionContext_->GetDocumentMgr(&owner)) &&
-      owner.Get() == docMgr) {
-    ResetState();
-  }
-  return S_OK;
+  return Guarded("OnUninitDocumentMgr", HRESULT(E_FAIL), [&]() -> HRESULT {
+    // The document is going away with our composition in it: forget it, never edit it.
+    ComPtr<ITfDocumentMgr> owner;
+    if (compositionContext_ && SUCCEEDED(compositionContext_->GetDocumentMgr(&owner)) &&
+        owner.Get() == docMgr) {
+      ResetState();
+    }
+    return S_OK;
+  });
 }
 
 STDMETHODIMP TextService::OnSetFocus(ITfDocumentMgr* focus, ITfDocumentMgr*) {
-  CloseCandidates();
-  // Focus left the document we are composing in and the app did not end the composition:
-  // commit it there (later, in that document's own edit session).
-  ComPtr<ITfDocumentMgr> owner;
-  if (composition_ && compositionContext_ &&
-      SUCCEEDED(compositionContext_->GetDocumentMgr(&owner)) && owner.Get() != focus) {
-    ComPtr<ITfContext> context = compositionContext_;
-    ComPtr<ITfComposition> composition = composition_;
-    ComPtr<TextService> self(this);
-    EditSession::Request(context.Get(), clientId_, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE,
-                         [self, context, composition](TfEditCookie ec) {
-                           if (self->composition_ == composition &&
-                               self->compositionContext_ == context) {
-                             self->CommitAll(context.Get(), ec);
-                           }
-                           return S_OK;
-                         });
-  }
-  RequestPrivacyUpdate(focus);
-  return S_OK;
+  return Guarded("OnSetFocus", HRESULT(E_FAIL), [&]() -> HRESULT {
+    CloseCandidates();
+    // Focus left the document we are composing in and the app did not end the composition:
+    // commit it there (later, in that document's own edit session).
+    ComPtr<ITfDocumentMgr> owner;
+    if (composition_ && compositionContext_ &&
+        SUCCEEDED(compositionContext_->GetDocumentMgr(&owner)) && owner.Get() != focus) {
+      ComPtr<ITfContext> context = compositionContext_;
+      ComPtr<ITfComposition> composition = composition_;
+      ComPtr<TextService> self(this);
+      EditSession::Request(context.Get(), clientId_, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE,
+                           [self, context, composition](TfEditCookie ec) {
+                             if (self->composition_ == composition &&
+                                 self->compositionContext_ == context) {
+                               self->CommitAll(context.Get(), ec);
+                             }
+                             return S_OK;
+                           });
+    }
+    RequestPrivacyUpdate(focus);
+    return S_OK;
+  });
 }
 
 STDMETHODIMP TextService::OnPushContext(ITfContext* context) {
-  ComPtr<ITfDocumentMgr> docMgr;
-  if (context && SUCCEEDED(context->GetDocumentMgr(&docMgr))) RequestPrivacyUpdate(docMgr.Get());
-  return S_OK;
+  return Guarded("OnPushContext", HRESULT(E_FAIL), [&]() -> HRESULT {
+    ComPtr<ITfDocumentMgr> docMgr;
+    if (context && SUCCEEDED(context->GetDocumentMgr(&docMgr))) RequestPrivacyUpdate(docMgr.Get());
+    return S_OK;
+  });
 }
 STDMETHODIMP TextService::OnPopContext(ITfContext* context) {
-  if (context && context == compositionContext_.Get()) ResetState();
-  return S_OK;
+  return Guarded("OnPopContext", HRESULT(E_FAIL), [&]() -> HRESULT {
+    if (context && context == compositionContext_.Get()) ResetState();
+    return S_OK;
+  });
 }
 
 STDMETHODIMP TextService::EnumDisplayAttributeInfo(IEnumTfDisplayAttributeInfo** enumInfo) {
-  return CreateDisplayAttributeEnum(enumInfo);
+  return Guarded("EnumDisplayAttributeInfo", HRESULT(E_FAIL), [&]() -> HRESULT {
+    return CreateDisplayAttributeEnum(enumInfo);
+  });
 }
 
 STDMETHODIMP TextService::GetDisplayAttributeInfo(REFGUID guid, ITfDisplayAttributeInfo** info) {
-  return CreateDisplayAttributeInfo(guid, info);
+  return Guarded("GetDisplayAttributeInfo", HRESULT(E_FAIL), [&]() -> HRESULT {
+    return CreateDisplayAttributeInfo(guid, info);
+  });
 }
 
 }  // namespace llaime

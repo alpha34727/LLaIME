@@ -5,6 +5,8 @@
 #include <new>
 #include <utility>
 
+#include "Guard.h"
+
 namespace llaime {
 
 // ITfEditSession that runs a callable with the granted edit cookie.
@@ -38,7 +40,9 @@ class EditSession final : public ITfEditSession {
     if (r == 0) delete this;
     return r;
   }
-  STDMETHODIMP DoEditSession(TfEditCookie ec) override { return fn_(ec); }
+  STDMETHODIMP DoEditSession(TfEditCookie ec) override {
+    return Guarded("DoEditSession", HRESULT(E_FAIL), [&] { return fn_(ec); });
+  }
 
  private:
   explicit EditSession(Fn fn) : fn_(std::move(fn)) {}

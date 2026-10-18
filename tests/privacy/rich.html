@@ -1,0 +1,16 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>LLaIME typing test (rich)</title>
+<p>LLaIME.TypeTest types here. Rich text editor (contenteditable, like chat apps):</p>
+<div id="editor" contenteditable="true" style="font-size:20px;width:30em;min-height:6em;border:1px solid #888;padding:8px"></div>
+<script>
+  // Chat inputs rewrite their content while you type (markdown, mentions, autosize); do the
+  // same on every input event so the IME sees its text change under it.
+  const editor = document.getElementById('editor');
+  editor.focus();
+  editor.addEventListener('input', () => {
+    editor.style.height = 'auto';
+    editor.style.height = editor.scrollHeight + 'px';
+    if (editor.textContent.length > 300) editor.textContent = '';
+  });
+</script>

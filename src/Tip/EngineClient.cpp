@@ -4,6 +4,7 @@
 #include <filesystem>
 
 #include "Globals.h"
+#include "Guard.h"
 
 namespace llaime {
 namespace {
@@ -48,7 +49,7 @@ EngineClient::EngineClient(Handlers handlers)
   }
   window_ = CreateWindowExW(0, kClassName, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, g_hInst,
                             this);
-  worker_ = std::thread([this] { Run(); });
+  worker_ = std::thread([this] { Guarded("EngineClient worker", [this] { Run(); }); });
   DuplicateHandle(GetCurrentProcess(), worker_.native_handle(), GetCurrentProcess(),
                   &workerHandle_, 0, FALSE, DUPLICATE_SAME_ACCESS);
 }
@@ -209,29 +210,31 @@ void EngineClient::Disconnect() {
 }
 
 LRESULT CALLBACK EngineClient::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-  if (msg == WM_NCCREATE) {
-    auto* cs = reinterpret_cast<CREATESTRUCTW*>(lp);
-    SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
-  } else if (msg == kResponseMessage) {
-    auto* self = reinterpret_cast<EngineClient*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-    if (!self) return 0;
-    std::deque<Response> responses;
-    {
-      std::lock_guard<std::mutex> lock(self->mutex_);
-      responses.swap(self->responses_);
-    }
-    for (const auto& r : responses) {
-      if (auto* rank = std::get_if<protocol::RankResponse>(&r)) {
-        if (self->handlers_.rank) self->handlers_.rank(*rank);
-      } else if (auto* dict = std::get_if<protocol::UserDictResponse>(&r)) {
-        if (self->handlers_.userDict) self->handlers_.userDict(*dict);
-      } else if (auto* ack = std::get_if<protocol::Ack>(&r)) {
-        if (self->handlers_.ack) self->handlers_.ack(*ack);
+  return Guarded("EngineClient::WndProc", LRESULT(0), [&]() -> LRESULT {
+    if (msg == WM_NCCREATE) {
+      auto* cs = reinterpret_cast<CREATESTRUCTW*>(lp);
+      SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
+    } else if (msg == kResponseMessage) {
+      auto* self = reinterpret_cast<EngineClient*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+      if (!self) return 0;
+      std::deque<Response> responses;
+      {
+        std::lock_guard<std::mutex> lock(self->mutex_);
+        responses.swap(self->responses_);
       }
+      for (const auto& r : responses) {
+        if (auto* rank = std::get_if<protocol::RankResponse>(&r)) {
+          if (self->handlers_.rank) self->handlers_.rank(*rank);
+        } else if (auto* dict = std::get_if<protocol::UserDictResponse>(&r)) {
+          if (self->handlers_.userDict) self->handlers_.userDict(*dict);
+        } else if (auto* ack = std::get_if<protocol::Ack>(&r)) {
+          if (self->handlers_.ack) self->handlers_.ack(*ack);
+        }
+      }
+      return 0;
     }
-    return 0;
-  }
-  return DefWindowProcW(hwnd, msg, wp, lp);
+    return DefWindowProcW(hwnd, msg, wp, lp);
+  });
 }
 
 }  // namespace llaime

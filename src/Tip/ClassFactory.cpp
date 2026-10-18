@@ -3,6 +3,7 @@
 #include <new>
 
 #include "Globals.h"
+#include "Guard.h"
 #include "TextService.h"
 
 namespace llaime {
@@ -33,11 +34,13 @@ STDMETHODIMP ClassFactory::CreateInstance(IUnknown* outer, REFIID riid, void** p
   if (!ppv) return E_INVALIDARG;
   *ppv = nullptr;
   if (outer) return CLASS_E_NOAGGREGATION;
-  auto* service = new (std::nothrow) TextService();
-  if (!service) return E_OUTOFMEMORY;
-  HRESULT hr = service->QueryInterface(riid, ppv);
-  service->Release();
-  return hr;
+  return Guarded("CreateInstance", HRESULT(E_FAIL), [&]() -> HRESULT {
+    auto* service = new (std::nothrow) TextService();
+    if (!service) return E_OUTOFMEMORY;
+    HRESULT hr = service->QueryInterface(riid, ppv);
+    service->Release();
+    return hr;
+  });
 }
 
 STDMETHODIMP ClassFactory::LockServer(BOOL lock) {

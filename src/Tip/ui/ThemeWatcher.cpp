@@ -3,6 +3,7 @@
 #include <cwchar>
 
 #include "Globals.h"
+#include "Guard.h"
 
 namespace llaime {
 namespace {
@@ -35,15 +36,17 @@ void ThemeWatcher::UnregisterClass() {
 }
 
 LRESULT CALLBACK ThemeWatcher::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-  if (msg == WM_NCCREATE) {
-    auto* cs = reinterpret_cast<CREATESTRUCTW*>(lp);
-    SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
-  } else if (msg == WM_SETTINGCHANGE && lp &&
-             std::wcscmp(reinterpret_cast<const wchar_t*>(lp), L"ImmersiveColorSet") == 0) {
-    auto* self = reinterpret_cast<ThemeWatcher*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-    if (self && self->onChange_) self->onChange_();
-  }
-  return DefWindowProcW(hwnd, msg, wp, lp);
+  return Guarded("ThemeWatcher::WndProc", LRESULT(0), [&]() -> LRESULT {
+    if (msg == WM_NCCREATE) {
+      auto* cs = reinterpret_cast<CREATESTRUCTW*>(lp);
+      SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
+    } else if (msg == WM_SETTINGCHANGE && lp &&
+               std::wcscmp(reinterpret_cast<const wchar_t*>(lp), L"ImmersiveColorSet") == 0) {
+      auto* self = reinterpret_cast<ThemeWatcher*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+      if (self && self->onChange_) self->onChange_();
+    }
+    return DefWindowProcW(hwnd, msg, wp, lp);
+  });
 }
 
 }  // namespace llaime

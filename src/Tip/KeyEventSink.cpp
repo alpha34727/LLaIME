@@ -1,6 +1,7 @@
 #include <cwctype>
 
 #include "EditSession.h"
+#include "Guard.h"
 #include "KeyMapping.h"
 #include "TextService.h"
 #include "ui/CandidateWindow.h"
@@ -298,45 +299,55 @@ void TextService::HandleAction(ITfContext* context, TfEditCookie ec, const KeyAc
 STDMETHODIMP TextService::OnSetFocus(BOOL) { return S_OK; }
 
 STDMETHODIMP TextService::OnTestKeyDown(ITfContext*, WPARAM wParam, LPARAM, BOOL* eaten) {
-  shiftAlone_ = wParam == VK_SHIFT;
-  *eaten = ClassifyKey(wParam).type != Type::PassThrough;
-  return S_OK;
+  return Guarded("OnTestKeyDown", HRESULT(E_FAIL), [&]() -> HRESULT {
+    shiftAlone_ = wParam == VK_SHIFT;
+    *eaten = ClassifyKey(wParam).type != Type::PassThrough;
+    return S_OK;
+  });
 }
 
 STDMETHODIMP TextService::OnKeyDown(ITfContext* context, WPARAM wParam, LPARAM, BOOL* eaten) {
-  shiftAlone_ = wParam == VK_SHIFT;
-  KeyAction action = ClassifyKey(wParam);
-  *eaten = action.type != Type::PassThrough;
-  if (*eaten) ExecuteKeyAction(context, action);
-  return S_OK;
+  return Guarded("OnKeyDown", HRESULT(E_FAIL), [&]() -> HRESULT {
+    shiftAlone_ = wParam == VK_SHIFT;
+    KeyAction action = ClassifyKey(wParam);
+    *eaten = action.type != Type::PassThrough;
+    if (*eaten) ExecuteKeyAction(context, action);
+    return S_OK;
+  });
 }
 
 // A Shift press and release with no other key in between toggles Chinese/English.
 STDMETHODIMP TextService::OnTestKeyUp(ITfContext*, WPARAM wParam, LPARAM, BOOL* eaten) {
-  *eaten = wParam == VK_SHIFT && shiftAlone_;
-  return S_OK;
+  return Guarded("OnTestKeyUp", HRESULT(E_FAIL), [&]() -> HRESULT {
+    *eaten = wParam == VK_SHIFT && shiftAlone_;
+    return S_OK;
+  });
 }
 
 STDMETHODIMP TextService::OnKeyUp(ITfContext* context, WPARAM wParam, LPARAM, BOOL* eaten) {
-  *eaten = FALSE;
-  if (wParam != VK_SHIFT || !shiftAlone_) return S_OK;
-  shiftAlone_ = false;
-  *eaten = TRUE;
-  if (chineseMode_ && IsComposing() && context) {
-    ComPtr<ITfContext> ctx(context);
-    EditSession::Request(context, clientId_, TF_ES_SYNC | TF_ES_READWRITE,
-                         [this, ctx](TfEditCookie ec) {
-                           CommitAll(ctx.Get(), ec);
-                           return S_OK;
-                         });
-  }
-  SetChineseMode(!chineseMode_);
-  return S_OK;
+  return Guarded("OnKeyUp", HRESULT(E_FAIL), [&]() -> HRESULT {
+    *eaten = FALSE;
+    if (wParam != VK_SHIFT || !shiftAlone_) return S_OK;
+    shiftAlone_ = false;
+    *eaten = TRUE;
+    if (chineseMode_ && IsComposing() && context) {
+      ComPtr<ITfContext> ctx(context);
+      EditSession::Request(context, clientId_, TF_ES_SYNC | TF_ES_READWRITE,
+                           [this, ctx](TfEditCookie ec) {
+                             CommitAll(ctx.Get(), ec);
+                             return S_OK;
+                           });
+    }
+    SetChineseMode(!chineseMode_);
+    return S_OK;
+  });
 }
 
 STDMETHODIMP TextService::OnPreservedKey(ITfContext*, REFGUID, BOOL* eaten) {
-  *eaten = FALSE;
-  return S_OK;
+  return Guarded("OnPreservedKey", HRESULT(E_FAIL), [&]() -> HRESULT {
+    *eaten = FALSE;
+    return S_OK;
+  });
 }
 
 }  // namespace llaime

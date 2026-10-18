@@ -10,6 +10,7 @@
 #include <cmath>
 
 #include "Globals.h"
+#include "Guard.h"
 #include "ui/Graphics.h"
 #include "ui/Theme.h"
 
@@ -279,13 +280,15 @@ void PopupMenu::Paint() {
 }
 
 LRESULT CALLBACK PopupMenu::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-  if (msg == WM_NCCREATE) {
-    auto* cs = reinterpret_cast<CREATESTRUCTW*>(lp);
-    SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
-    reinterpret_cast<PopupMenu*>(cs->lpCreateParams)->hwnd_ = hwnd;
-  }
-  auto* self = reinterpret_cast<PopupMenu*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-  return self ? self->Handle(msg, wp, lp) : DefWindowProcW(hwnd, msg, wp, lp);
+  return Guarded("PopupMenu::WndProc", LRESULT(0), [&]() -> LRESULT {
+    if (msg == WM_NCCREATE) {
+      auto* cs = reinterpret_cast<CREATESTRUCTW*>(lp);
+      SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
+      reinterpret_cast<PopupMenu*>(cs->lpCreateParams)->hwnd_ = hwnd;
+    }
+    auto* self = reinterpret_cast<PopupMenu*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    return self ? self->Handle(msg, wp, lp) : DefWindowProcW(hwnd, msg, wp, lp);
+  });
 }
 
 LRESULT PopupMenu::Handle(UINT msg, WPARAM wp, LPARAM lp) {

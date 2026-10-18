@@ -1,6 +1,7 @@
 # UI pieces are a static library so the preview tool can render them outside a host app.
 add_library(LLaIME.TipUi STATIC
   Globals.cpp
+  Guard.cpp
   ui/Theme.cpp
   ui/Graphics.cpp
   ui/TextIcon.cpp
