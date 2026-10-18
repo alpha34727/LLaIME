@@ -99,10 +99,11 @@ public sealed partial class ModelPage : Page
             : model.Downloaded ? (inUse ? "已下載 · 使用中" : "已下載")
             : downloadError_ != null && downloading_ == null && lastFailed_ == model.Id ? $"下載失敗：{downloadError_}"
             : $"{Gb(model.Size)}";
+        var license = model.License.Length > 0 ? $" · 授權 {model.License}" : "";
         var card = new SettingsCard
         {
             Header = model.Name,
-            Description = $"{model.Description}\n{status} · 授權 {model.License}",
+            Description = $"{model.Description}\n{status}{license}",
             HeaderIcon = new FontIcon { Glyph = model.Kind == "laya" ? "\uE9D9" : "\uE8F1" },
         };
         var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
@@ -151,8 +152,76 @@ public sealed partial class ModelPage : Page
 
     private static string? lastFailed_;
 
+    private async void LinkBox_KeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+    {
+        if (e.Key == Windows.System.VirtualKey.Enter) await DownloadLinkAsync();
+    }
+
+    private async void LinkDownload_Click(object sender, RoutedEventArgs e) => await DownloadLinkAsync();
+
+    // Looks the link up on the Hub, lets people pick a file if there are several (the Q4_K_M
+    // quantization first), then downloads it like a catalog model.
+    private async Task DownloadLinkAsync()
+    {
+        var link = LinkBox.Text.Trim();
+        if (link.Length == 0) return;
+        if (downloading_ != null)
+        {
+            await Dialogs.ShowMessageAsync("正在下載其他模型", "請等目前的下載完成或取消後再試。");
+            return;
+        }
+        LinkButton.IsEnabled = false;
+        LinkRing.IsActive = true;
+        List<CatalogModel> choices;
+        try
+        {
+            choices = await ModelCatalog.ResolveLinkAsync(link, CancellationToken.None);
+        }
+        catch (Exception ex) when (ex is InvalidDataException or HttpRequestException or System.Text.Json.JsonException)
+        {
+            await Dialogs.ShowMessageAsync("無法下載這個連結", ex is HttpRequestException ? $"無法連線到 Hugging Face：{ex.Message}" : ex.Message);
+            return;
+        }
+        finally
+        {
+            LinkButton.IsEnabled = true;
+            LinkRing.IsActive = false;
+        }
+
+        var model = choices[0];
+        if (choices.Count > 1)
+        {
+            var list = new ListView
+            {
+                ItemsSource = choices.Select(c => $"{c.Name}（{Gb(c.Size)}）").ToList(),
+                SelectionMode = ListViewSelectionMode.Single,
+                MaxHeight = 360,
+            };
+            var preferred = choices.FindIndex(c => c.Name.Contains("Q4_K_M", StringComparison.OrdinalIgnoreCase));
+            list.SelectedIndex = Math.Max(0, preferred);
+            list.Loaded += (_, _) => list.ScrollIntoView(list.SelectedItem, ScrollIntoViewAlignment.Leading);
+            var content = new StackPanel { Spacing = 8, MinWidth = 420 };
+            content.Children.Add(new TextBlock
+            {
+                Text = "這個模型有多個檔案（不同的量化等級）。Q4_K_M 通常是大小與準確度最平衡的選擇。",
+                TextWrapping = TextWrapping.Wrap,
+            });
+            content.Children.Add(list);
+            if (await Dialogs.Create($"選擇要下載的檔案：{choices[0].Repo}", content, "下載", "取消").ShowAsync()
+                != ContentDialogResult.Primary || list.SelectedIndex < 0)
+            {
+                return;
+            }
+            model = choices[list.SelectedIndex];
+        }
+        LinkBox.Text = "";
+        await DownloadAsync(model);
+    }
+
     private async Task DownloadAsync(CatalogModel model)
     {
+        // A model from a link is listed (and resumable) from the moment its download starts.
+        if (model.Custom) ModelCatalog.SaveManifest(model);
         downloading_ = model;
         downloadDone_ = 0;
         downloadError_ = null;

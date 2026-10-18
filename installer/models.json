@@ -1,5 +1,5 @@
 {
-  "comment": "Models the settings app can download into %LOCALAPPDATA%\\LLaIME\\models. Installed as <root>\\models\\catalog.json. An entry with an empty repo is not published yet and is shown as unavailable. Files are fetched from https://huggingface.co/<repo>/resolve/main/<name> and checked against size and sha256.",
+  "comment": "Models the settings app can download into %LOCALAPPDATA%\\LLaIME\\models. Installed as <root>\\models\\catalog.json. An entry with an empty repo is not published yet and is shown as unavailable. Files are fetched from https://huggingface.co/<repo>/resolve/main/<name> and checked against size and sha256. Other GGUF models are added in the settings app by pasting a Hugging Face link.",
   "models": [
     {
       "id": "qwen3.5-2b-tw",
@@ -9,40 +9,11 @@
       "license": "Apache-2.0",
       "repo": "",
       "files": [
-        { "name": "Qwen3.5-2B-tw-Q4_K_M.gguf", "size": 1274396768, "sha256": "cdc08380bac904bdefab0aa8bfb0dc4664b6fa186111bc1133f53c141d445bb6" }
-      ]
-    },
-    {
-      "id": "qwen3.5-2b",
-      "kind": "llm",
-      "name": "Qwen3.5-2B（原版）",
-      "description": "未微調的 2B 語言模型（評測 dev 88.2%）。",
-      "license": "Apache-2.0",
-      "repo": "unsloth/Qwen3.5-2B-GGUF",
-      "files": [
-        { "name": "Qwen3.5-2B-Q4_K_M.gguf", "size": 1280835840, "sha256": "aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223" }
-      ]
-    },
-    {
-      "id": "qwen3.5-0.8b",
-      "kind": "llm",
-      "name": "Qwen3.5-0.8B（小型）",
-      "description": "顯示記憶體較少或只用 CPU 時的較小模型（評測 dev 86.2%）。",
-      "license": "Apache-2.0",
-      "repo": "unsloth/Qwen3.5-0.8B-GGUF",
-      "files": [
-        { "name": "Qwen3.5-0.8B-Q4_K_M.gguf", "size": 532517120, "sha256": "bd258782e35f7f458f8aced1adc053e6e92e89bc735ba3be89d38a06121dc517" }
-      ]
-    },
-    {
-      "id": "qwen3.5-4b",
-      "kind": "llm",
-      "name": "Qwen3.5-4B（大型）",
-      "description": "較大的原版模型，需要 6 GB 以上顯示記憶體。",
-      "license": "Apache-2.0",
-      "repo": "unsloth/Qwen3.5-4B-GGUF",
-      "files": [
-        { "name": "Qwen3.5-4B-Q4_K_M.gguf", "size": 2740937888, "sha256": "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4" }
+        {
+          "name": "Qwen3.5-2B-tw-Q4_K_M.gguf",
+          "size": 1274396768,
+          "sha256": "cdc08380bac904bdefab0aa8bfb0dc4664b6fa186111bc1133f53c141d445bb6"
+        }
       ]
     },
     {
@@ -53,8 +24,16 @@
       "license": "Apache-2.0",
       "repo": "",
       "files": [
-        { "name": "laya.int8.onnx", "size": 165630443, "sha256": "0591594d18cdf0e268d09b34813f4a2bc7548cdebaf1acf53e211e0ca8ad1011" },
-        { "name": "tokenizer.bin", "size": 7134163, "sha256": "70922649e4f697fd9f2a80f8af64e30ee6bc67e23c8ccc7b7a0088fa4b197c1f" }
+        {
+          "name": "laya.int8.onnx",
+          "size": 165630443,
+          "sha256": "0591594d18cdf0e268d09b34813f4a2bc7548cdebaf1acf53e211e0ca8ad1011"
+        },
+        {
+          "name": "tokenizer.bin",
+          "size": 7134163,
+          "sha256": "70922649e4f697fd9f2a80f8af64e30ee6bc67e23c8ccc7b7a0088fa4b197c1f"
+        }
       ]
     }
   ]

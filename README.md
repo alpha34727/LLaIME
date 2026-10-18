@@ -47,7 +47,7 @@ WiX Toolset 7（NuGet 套件，不必另外安裝；專案中已接受其 OSMF E
 
 - 輸入法 DLL（x64、x86，以 regsvr32 註冊 TSF）、選字引擎（llama.cpp CPU／CUDA 後端、CUDA 執行階段、ONNX Runtime、隨附 VC++ 執行階段）、設定程式與開始功能表「LLaIME 設定」、詞庫層、第三方授權聲明（安裝畫面的授權頁）。
 - 安裝的使用者會自動把「LLaIME 注音」加進鍵盤清單（`LLaIME.InputSetup.exe`）；解除安裝時移除，升級時保留。
-- **不含選字模型**：安裝完成時可勾選開啟設定程式，在「選字模型與加速」頁從 Hugging Face 下載（`installer\models.json`，可續傳、會檢查 SHA-256）。台灣 LoRA 版與 Laya 尚未上傳，清單裡顯示「尚未發布」；上傳後在 `models.json` 填上 repo 即可。
+- **不含選字模型**：安裝完成時可勾選開啟設定程式，在「選字模型與加速」頁下載。清單只列建議的 Qwen3.5-2B 台灣 LoRA 與 Laya 中文排序器（`installer\models.json`；尚未上傳到 Hugging Face，顯示「尚未發布」，上傳後填上 repo 即可）；其他 GGUF 模型貼上 Hugging Face 連結即可下載（模型頁、`blob`／`resolve` 檔案連結、`hf.co` 或 `owner/name` 都可以；有多個量化檔時列出讓你選，預選 Q4_K_M；分割的 GGUF 會一起下載；略過 `mmproj` 視覺投影檔）。下載可續傳，會依 Hub 的資料檢查大小與 SHA-256；第一個下載的模型自動設為使用中。
 - 預設不含教育部辭典詞庫層（CC BY-ND 3.0 TW「禁止改作」），散布含 `moe.bin` 的版本前請先確認授權。
 - 解除安裝不會刪除使用者資料（`%LOCALAPPDATA%\LLaIME`：詞彙、學習紀錄、下載的模型）。
 - 正在使用輸入法的程式會留著舊的 DLL，重新開啟該程式後才換成新版。
@@ -58,7 +58,7 @@ WiX Toolset 7（NuGet 套件，不必另外安裝；專案中已接受其 OSMF E
 powershell -ExecutionPolicy Bypass -File scripts\test-installer.ps1 -Msi build\installer\LLaIME-0.1.0-x64.msi
 ```
 
-2026-10-18 結果：45 項檢查全部通過（檔案、COM／TSF 註冊與移除、開始功能表捷徑、使用者鍵盤清單；第一次安裝同時驗證了從舊版升級）。模型下載器另有測試（`tests\SettingsTests`，`dotnet run -c Release`：中途取消、續傳、SHA-256 檢查、偵測損壞檔），通過。
+2026-10-18 結果：45 項檢查全部通過（檔案、COM／TSF 註冊與移除、開始功能表捷徑、使用者鍵盤清單；第一次安裝同時驗證了從舊版升級）。模型下載器另有測試（`tests\SettingsTests`：`dotnet run -c Release` 測下載、中途取消、續傳、SHA-256、偵測損壞檔；`dotnet run -c Release -- links` 測 Hugging Face 連結解析 13 項），全部通過。
 
 ## 安裝（開發用）
 
