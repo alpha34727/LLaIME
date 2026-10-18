@@ -1,0 +1,21 @@
+<Project Sdk="WixToolset.Sdk/7.0.0">
+  <!-- Built by scripts/build-installer.ps1, which stages the files and passes StageDir,
+       ProductVersion and LicenseRtf. -->
+  <PropertyGroup>
+    <OutputName Condition="'$(OutputName)' == ''">LLaIME</OutputName>
+    <Platform>x64</Platform>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <Cultures>zh-TW</Cultures>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">0.1.0</ProductVersion>
+    <DefineConstants>ProductVersion=$(ProductVersion);StageDir=$(StageDir);LicenseRtf=$(LicenseRtf)</DefineConstants>
+    <!-- WiX 7 is under the Open Source Maintenance Fee EULA (https://wixtoolset.org/osmf/). -->
+    <AcceptEula>wix7</AcceptEula>
+    <!-- ICE03: Windows App SDK resource DLLs list more languages than the File table's
+         Language column holds; Windows Installer only uses it to compare equal versions. -->
+    <SuppressIces>ICE03;ICE61</SuppressIces>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="WixToolset.UI.wixext" Version="7.0.0" />
+    <PackageReference Include="WixToolset.Util.wixext" Version="7.0.0" />
+  </ItemGroup>
+</Project>

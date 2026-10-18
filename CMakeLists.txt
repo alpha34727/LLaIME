@@ -19,6 +19,10 @@ if(LLAIME_BUILD_ENGINE AND CMAKE_SIZEOF_VOID_P EQUAL 8 AND EXISTS ${CMAKE_SOURCE
   add_subdirectory(src/Engine)
 endif()
 
+if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+  add_subdirectory(src/Setup)
+endif()
+
 # The settings app's native bridge needs the user dictionary store (src/Engine).
 if(TARGET LLaIME.UserStore)
   add_subdirectory(src/Settings/Native)

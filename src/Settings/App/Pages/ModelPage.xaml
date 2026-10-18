@@ -16,6 +16,11 @@
         </InfoBar.ActionButton>
       </InfoBar>
 
+      <TextBlock Text="下載模型" Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" />
+      <TextBlock TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="0,0,0,4"
+                 Text="安裝程式不含模型。從 Hugging Face 下載到使用者資料夾，下載完會檢查檔案是否完整；中斷後可以接著下載。" />
+      <StackPanel x:Name="DownloadList" Spacing="{StaticResource SettingsCardSpacing}" />
+
       <TextBlock Text="選字方式" Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" />
       <tk:SettingsCard Header="選字模型" Description="自動：有顯示卡時用語言模型，否則用 CPU 模式。">
         <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE950;" /></tk:SettingsCard.HeaderIcon>

@@ -93,6 +93,10 @@ void UnregisterProfiles() {
                                  IID_PPV_ARGS(&mgr)))) {
     mgr->UnregisterProfile(CLSID_TextService, kLangIdZhTw, GUID_ProfileBopomofo, 0);
   }
+  // TSF keeps the text service's key (now empty of profiles and categories); remove it so an
+  // uninstall leaves nothing behind.
+  const std::wstring tipKey = L"SOFTWARE\\Microsoft\\CTF\\TIP\\" + ClsidString();
+  RegDeleteTreeW(HKEY_LOCAL_MACHINE, tipKey.c_str());
 }
 
 HRESULT RegisterCategories() {

@@ -1,3 +1,4 @@
+using CommunityToolkit.WinUI.Controls;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
@@ -25,6 +26,7 @@ public sealed partial class ModelPage : Page
         loading_ = true;
         Select(RankerBox, Native.ReadEngineSetting("model", "ranker") is { Length: > 0 } r ? r : "auto");
         LoadModels(Native.ReadEngineSetting("model", "path"));
+        ShowDownloads();
         layaDir_ = Native.ReadEngineSetting("laya", "path");
         LayaCard.Description = layaDir_.Length > 0 ? layaDir_ : "尚未設定";
         ThreadsBox.Value = int.TryParse(Native.ReadEngineSetting("model", "threads"), out var t) ? t : 0;
@@ -42,7 +44,11 @@ public sealed partial class ModelPage : Page
         await LoadDevicesAsync(Native.ReadEngineSetting("model", "device"));
     }
 
-    protected override void OnNavigatedFrom(NavigationEventArgs e) => statusTimer_?.Stop();
+    protected override void OnNavigatedFrom(NavigationEventArgs e)
+    {
+        statusTimer_?.Stop();
+        DownloadChanged -= OnDownloadChanged;
+    }
 
     private static void Select(ComboBox box, string tag)
     {
@@ -55,6 +61,153 @@ public sealed partial class ModelPage : Page
 
     // GGUF files next to the current model, in its parent folder (and their subfolders), and in
     // <root>\models and %LOCALAPPDATA%\LLaIME\models.
+    // --- downloads --------------------------------------------------------------------------
+
+    // One download at a time, kept across visits to the page.
+    private static CatalogModel? downloading_;
+    private static CancellationTokenSource? downloadCancel_;
+    private static long downloadDone_;
+    private static string? downloadError_;
+    private static event Action? DownloadChanged;
+
+    private void ShowDownloads()
+    {
+        DownloadChanged -= OnDownloadChanged;
+        DownloadChanged += OnDownloadChanged;
+        DownloadList.Children.Clear();
+        var catalog = ModelCatalog.Load();
+        if (catalog.Count == 0)
+        {
+            DownloadList.Children.Add(new TextBlock { Text = "找不到模型清單（models\\catalog.json）。" });
+            return;
+        }
+        foreach (var model in catalog) DownloadList.Children.Add(DownloadCard(model));
+    }
+
+    private void OnDownloadChanged() => DispatcherQueue.TryEnqueue(ShowDownloads);
+
+    private static string Gb(long bytes) => $"{bytes / 1e9:0.0} GB";
+
+    private SettingsCard DownloadCard(CatalogModel model)
+    {
+        var current = model.Kind == "laya" ? Native.ReadEngineSetting("laya", "path") : Native.ReadEngineSetting("model", "path");
+        var inUse = string.Equals(Path.GetFullPath(current.Length > 0 ? current : "."), Path.GetFullPath(model.EnginePath),
+                                  StringComparison.OrdinalIgnoreCase);
+        var busy = downloading_?.Id == model.Id;
+        var status = !model.Published ? "尚未發布"
+            : busy ? $"下載中 {downloadDone_ * 100.0 / model.Size:0}%（{Gb(downloadDone_)} / {Gb(model.Size)}）"
+            : model.Downloaded ? (inUse ? "已下載 · 使用中" : "已下載")
+            : downloadError_ != null && downloading_ == null && lastFailed_ == model.Id ? $"下載失敗：{downloadError_}"
+            : $"{Gb(model.Size)}";
+        var card = new SettingsCard
+        {
+            Header = model.Name,
+            Description = $"{model.Description}\n{status} · 授權 {model.License}",
+            HeaderIcon = new FontIcon { Glyph = model.Kind == "laya" ? "\uE9D9" : "\uE8F1" },
+        };
+        var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        if (busy)
+        {
+            panel.Children.Add(new ProgressBar
+            {
+                Width = 160, Minimum = 0, Maximum = model.Size, Value = downloadDone_,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            var cancel = new Button { Content = "取消" };
+            cancel.Click += (_, _) => downloadCancel_?.Cancel();
+            panel.Children.Add(cancel);
+        }
+        else if (model.Downloaded)
+        {
+            if (!inUse)
+            {
+                var delete = new Button { Content = new FontIcon { Glyph = "\uE74D", FontSize = 14 } };
+                ToolTipService.SetToolTip(delete, "刪除下載的檔案");
+                delete.Click += async (_, _) =>
+                {
+                    if (!await Dialogs.ConfirmAsync($"刪除「{model.Name}」？", $"會刪除 {model.Folder}，之後可再下載。", "刪除")) return;
+                    ModelCatalog.Delete(model);
+                    ShowDownloads();
+                };
+                panel.Children.Add(delete);
+                var use = new Button { Content = "使用" };
+                use.Click += async (_, _) => await UseModelAsync(model);
+                panel.Children.Add(use);
+            }
+        }
+        else
+        {
+            var download = new Button
+            {
+                Content = model.Published ? "下載" : "尚未發布",
+                IsEnabled = model.Published && downloading_ == null,
+            };
+            download.Click += async (_, _) => await DownloadAsync(model);
+            panel.Children.Add(download);
+        }
+        card.Content = panel;
+        return card;
+    }
+
+    private static string? lastFailed_;
+
+    private async Task DownloadAsync(CatalogModel model)
+    {
+        downloading_ = model;
+        downloadDone_ = 0;
+        downloadError_ = null;
+        downloadCancel_ = new CancellationTokenSource();
+        DownloadChanged?.Invoke();
+        var progress = new Progress<long>(done =>
+        {
+            downloadDone_ = done;
+            DownloadChanged?.Invoke();
+        });
+        var ok = false;
+        try
+        {
+            await ModelCatalog.DownloadAsync(model, progress, downloadCancel_.Token);
+            ok = true;
+        }
+        catch (OperationCanceledException)
+        {
+            // The partial file stays for the next attempt.
+        }
+        catch (Exception e)
+        {
+            downloadError_ = e.Message;
+            lastFailed_ = model.Id;
+        }
+        downloading_ = null;
+        downloadCancel_ = null;
+        DownloadChanged?.Invoke();
+        if (!ok) return;
+        // The first model of its kind is used right away.
+        var key = model.Kind == "laya" ? ("laya", "path") : ("model", "path");
+        var current = Native.ReadEngineSetting(key.Item1, key.Item2);
+        if (current.Length == 0 || !(File.Exists(current) || Directory.Exists(current))) await UseModelAsync(model);
+    }
+
+    private async Task UseModelAsync(CatalogModel model)
+    {
+        if (model.Kind == "laya")
+        {
+            Native.WriteEngineSetting("laya", "path", model.EnginePath);
+            layaDir_ = model.EnginePath;
+            LayaCard.Description = layaDir_;
+        }
+        else
+        {
+            Native.WriteEngineSetting("model", "path", model.EnginePath);
+            loading_ = true;
+            LoadModels(model.EnginePath);
+            loading_ = false;
+        }
+        if (!await Task.Run(Native.ReloadEngine)) await Task.Run(Native.StartEngine);
+        ShowDownloads();
+        await RefreshStatusAsync();
+    }
+
     private void LoadModels(string current)
     {
         var dirs = new List<string>();
@@ -156,7 +309,11 @@ public sealed partial class ModelPage : Page
         {
             StatusBar.Severity = InfoBarSeverity.Error;
             StatusBar.Title = "模型無法載入，目前只用詞庫選字";
-            StatusBar.Message = status.Error.Length > 0 ? status.Error : "請檢查模型檔案與加速裝置設定。";
+            var noModel = Native.ReadEngineSetting("model", "path").Length == 0 &&
+                          Native.ReadEngineSetting("laya", "path").Length == 0;
+            StatusBar.Title = noModel ? "還沒有選字模型，目前只用詞庫選字" : StatusBar.Title;
+            StatusBar.Message = noModel ? "請在下方「下載模型」選一個下載。"
+                : status.Error.Length > 0 ? status.Error : "請檢查模型檔案與加速裝置設定。";
         }
     }
 

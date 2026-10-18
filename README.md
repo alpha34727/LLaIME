@@ -36,6 +36,30 @@ cmake --preset x86; cmake --build --preset x86-debug
 dotnet build src\Settings\App -c Release   # 設定程式（需先建好 x64 的 LLaIME.SettingsNative）
 ```
 
+## 安裝程式
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1               # build\installer\LLaIME-<版本>-x64.msi
+powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1 -IncludeMoe   # 含教育部詞庫層（…-x64-moe.msi）
+```
+
+WiX Toolset 7（NuGet 套件，不必另外安裝；專案中已接受其 OSMF EULA）。MSI 約 490 MB，裝到 `C:\Program Files\LLaIME`：
+
+- 輸入法 DLL（x64、x86，以 regsvr32 註冊 TSF）、選字引擎（llama.cpp CPU／CUDA 後端、CUDA 執行階段、ONNX Runtime、隨附 VC++ 執行階段）、設定程式與開始功能表「LLaIME 設定」、詞庫層、第三方授權聲明（安裝畫面的授權頁）。
+- 安裝的使用者會自動把「LLaIME 注音」加進鍵盤清單（`LLaIME.InputSetup.exe`）；解除安裝時移除，升級時保留。
+- **不含選字模型**：安裝完成時可勾選開啟設定程式，在「選字模型與加速」頁從 Hugging Face 下載（`installer\models.json`，可續傳、會檢查 SHA-256）。台灣 LoRA 版與 Laya 尚未上傳，清單裡顯示「尚未發布」；上傳後在 `models.json` 填上 repo 即可。
+- 預設不含教育部辭典詞庫層（CC BY-ND 3.0 TW「禁止改作」），散布含 `moe.bin` 的版本前請先確認授權。
+- 解除安裝不會刪除使用者資料（`%LOCALAPPDATA%\LLaIME`：詞彙、學習紀錄、下載的模型）。
+- 正在使用輸入法的程式會留著舊的 DLL，重新開啟該程式後才換成新版。
+
+安裝測試（一次 UAC；安裝 → 檢查 → 解除安裝 → 檢查 → 重新安裝，結果在 `build\installer\test.log`）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\test-installer.ps1 -Msi build\installer\LLaIME-0.1.0-x64.msi
+```
+
+2026-10-18 結果：45 項檢查全部通過（檔案、COM／TSF 註冊與移除、開始功能表捷徑、使用者鍵盤清單；第一次安裝同時驗證了從舊版升級）。模型下載器另有測試（`tests\SettingsTests`，`dotnet run -c Release`：中途取消、續傳、SHA-256 檢查、偵測損壞檔），通過。
+
 ## 安裝（開發用）
 
 ```powershell
@@ -43,7 +67,7 @@ powershell -ExecutionPolicy Bypass -File scripts\dev-install.ps1          # 安�
 powershell -ExecutionPolicy Bypass -File scripts\dev-install.ps1 -Uninstall
 ```
 
-安裝程式也會建置並安裝設定程式（`C:\Program Files\LLaIME\settings`），開始功能表出現「LLaIME 設定」。
+安裝程式也會建置並安裝設定程式（`C:\Program Files\LLaIME\settings`），開始功能表出現「LLaIME 設定」。已用 MSI 安裝時請先解除安裝 MSI，兩種方式不要混用。
 
 安裝後到「設定 → 時間與語言 → 語言與地區 → 中文（台灣）→ 語言選項 → 鍵盤 → 新增鍵盤」加入「LLaIME 注音」。
 

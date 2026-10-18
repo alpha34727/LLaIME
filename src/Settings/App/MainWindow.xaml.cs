@@ -35,6 +35,12 @@ public sealed partial class MainWindow : Window
             presenter.PreferredMinimumHeight = (int)(480 * scale);
         }
         ContentFrame.Navigate(typeof(GeneralPage));
+        // Right after installing there is no model yet: start where it is downloaded.
+        if (Native.ReadEngineSetting("model", "path").Length == 0 &&
+            Native.ReadEngineSetting("laya", "path").Length == 0)
+        {
+            Navigate("model");
+        }
     }
 
     public XamlRoot? Xaml => Content.XamlRoot;

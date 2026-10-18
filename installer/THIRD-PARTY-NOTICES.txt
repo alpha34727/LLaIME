@@ -1,0 +1,29 @@
+LLaIME 注音輸入法：第三方元件與資料聲明
+Third-party components and data
+
+安裝本程式即表示您了解下列元件依其各自的授權條款提供。完整授權文字放在安裝資料夾的 licenses 子資料夾。
+選字用的語言模型不包含在安裝程式中，由設定程式從 Hugging Face 下載，授權見各模型頁面（Qwen3.5 為 Apache-2.0）。
+
+詞庫資料 Lexicon data
+- McBopomofo（小麥注音）詞庫與詞頻 — MIT License。
+  https://github.com/openvanilla/McBopomofo — licenses\McBopomofo.txt
+- libchewing-data（新酷音詞庫）— Copyright (c) libchewing Core Team，LGPL-2.1-or-later。
+  本程式的 chewing.bin 由 tsi.csv 中主詞庫沒有的詞編成（tools/prepare_lexicon.py、tools/supplement_lexicon.py）。
+  原始資料：https://github.com/chewing/libchewing-data — licenses\LGPL-2.1.txt
+- 教育部《重編國語辭典修訂本》（只在以 -IncludeMoe 建置的版本中）— CC BY-ND 3.0 TW。
+  https://dict.revised.moe.edu.tw/
+
+程式元件 Software
+- llama.cpp / ggml — MIT License。https://github.com/ggml-org/llama.cpp — licenses\llama.cpp.txt
+- ONNX Runtime — MIT License。https://github.com/microsoft/onnxruntime — licenses\onnxruntime.txt
+- NVIDIA CUDA Runtime、cuBLAS（cudart64_13.dll、cublas64_13.dll、cublasLt64_13.dll）—
+  依 NVIDIA CUDA Toolkit End User License Agreement 的可再散布元件條款提供。
+  https://docs.nvidia.com/cuda/eula/
+- Microsoft Visual C++ 執行階段（msvcp140、vcruntime140、vcomp140 等）— 依 Visual Studio 授權的可再散布程式碼條款提供。
+- SQLite — 公有領域（Public Domain）。https://sqlite.org/copyright.html
+- Windows App SDK — Microsoft Software License Terms。licenses\WindowsAppSDK.txt
+- Windows Community Toolkit — MIT License。licenses\WindowsCommunityToolkit.txt
+
+資料與隱私 Privacy
+- 所有選字都在本機完成，不連網；只有在設定程式中按「下載」時才會連到 Hugging Face 下載模型。
+- 您的詞彙與學習紀錄存在 %LOCALAPPDATA%\LLaIME，解除安裝時不會刪除，可自行刪除該資料夾。

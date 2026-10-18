@@ -50,6 +50,13 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 
 $repo = Split-Path -Parent $PSScriptRoot
 $installRoot = Join-Path $env:ProgramFiles 'LLaIME'
+# An MSI install (scripts/build-installer.ps1) owns these files; mixing the two would let
+# Windows Installer "repair" the development files back.
+$msi = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
+  Where-Object { $_.DisplayName -eq 'LLaIME 注音輸入法' -and $_.WindowsInstaller -eq 1 }
+if ($msi) {
+  throw "LLaIME $($msi.DisplayVersion) is installed from an MSI. Uninstall it first (Settings > Apps, or: msiexec /x $($msi.PSChildName))."
+}
 # The engine holds its files open; stop it before replacing or removing them.
 Get-Process LLaIME.Engine -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Milliseconds 300
@@ -116,6 +123,11 @@ if ($Uninstall) {
     try { Remove-Item $old.FullName -Force -ErrorAction Stop } catch { Rename-Item $old.FullName ($old.Name + ".old$stamp") -ErrorAction SilentlyContinue }
   }
   Write-Host "Installed lexicon layers to $lexDir"
+
+  # The models the settings app can download.
+  $modelsDir = Join-Path $installRoot 'models'
+  New-Item -ItemType Directory -Force $modelsDir | Out-Null
+  Copy-Item (Join-Path $repo 'installer\models.json') (Join-Path $modelsDir 'catalog.json') -Force
 
   # Settings app (self-contained WinUI 3 build with the native bridge).
   $appOut = Get-ChildItem (Join-Path $repo 'src\Settings\App\bin\Release') -Recurse -Filter 'LLaIME.Settings.exe' |

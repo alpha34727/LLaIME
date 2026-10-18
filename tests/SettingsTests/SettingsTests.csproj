@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Download test for the settings app's model catalog (src/Settings/App/ModelCatalog.cs):
+         dotnet run -c Release, optionally followed by a model id and a catalog path
+       Downloads into a temporary folder, cancels halfway, resumes, and checks the result. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>LLaIME.Settings</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\src\Settings\App\ModelCatalog.cs" Link="ModelCatalog.cs" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,152 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!--
+  LLaIME per-machine MSI. Installs into Program Files\LLaIME:
+    x64\, x86\        the TIP DLLs, registered with regsvr32 (TSF profile and categories)
+    engine\           LLaIME.Engine.exe and its DLLs (started by the TIP for each user)
+    settings\         LLaIME.Settings.exe (Start menu: LLaIME 設定)
+    data\lexicons\    lexicon layers
+    models\           catalog.json: the models the settings app downloads
+    setup\            LLaIME.InputSetup.exe: adds LLaIME to the installing user's keyboards
+    licenses\         third-party notices
+  The engine and the settings app are closed before files are replaced. Apps that have the TIP
+  loaded keep the old DLL until they restart (Windows Installer replaces it on reboot if needed).
+  Per-user data (%LOCALAPPDATA%\LLaIME, HKCU\Software\LLaIME) is left on uninstall.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="LLaIME 注音輸入法"
+           Manufacturer="LLaIME"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="{64608CAE-2554-4660-A9CB-902BDC09EDEF}"
+           Scope="perMachine"
+           Language="1028"
+           Codepage="950">
+    <SummaryInformation Description="LLaIME 注音輸入法：以本機語言模型選字" Manufacturer="LLaIME" />
+    <MajorUpgrade DowngradeErrorMessage="已經安裝了較新版本的 LLaIME。" AllowSameVersionUpgrades="yes" />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="AppIcon" SourceFile="..\src\Tip\res\bopomofo.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="LLaIME">
+        <Directory Id="X64Folder" Name="x64" />
+        <Directory Id="X86Folder" Name="x86" />
+        <Directory Id="EngineFolder" Name="engine" />
+        <Directory Id="SettingsFolder" Name="settings" />
+        <Directory Id="DataFolder" Name="data">
+          <Directory Id="LexiconFolder" Name="lexicons" />
+        </Directory>
+        <Directory Id="ModelsFolder" Name="models" />
+        <Directory Id="SetupFolder" Name="setup" />
+        <Directory Id="LicensesFolder" Name="licenses" />
+      </Directory>
+    </StandardDirectory>
+
+    <ComponentGroup Id="Tips">
+      <Component Directory="X64Folder">
+        <File Id="Tip64" Source="$(var.StageDir)x64\LLaIME.Tip.dll" />
+      </Component>
+      <Component Directory="X86Folder">
+        <File Id="Tip32" Source="$(var.StageDir)x86\LLaIME.Tip.dll" />
+      </Component>
+    </ComponentGroup>
+    <ComponentGroup Id="Engine" Directory="EngineFolder">
+      <Files Include="$(var.StageDir)engine\**" />
+    </ComponentGroup>
+    <ComponentGroup Id="Settings" Directory="SettingsFolder">
+      <Files Include="$(var.StageDir)settings\**">
+        <Exclude Files="$(var.StageDir)settings\LLaIME.Settings.exe" />
+      </Files>
+      <Component>
+        <File Id="SettingsExe" Source="$(var.StageDir)settings\LLaIME.Settings.exe" />
+      </Component>
+    </ComponentGroup>
+    <ComponentGroup Id="Data">
+      <Files Directory="LexiconFolder" Include="$(var.StageDir)data\lexicons\**" />
+      <Files Directory="ModelsFolder" Include="$(var.StageDir)models\**" />
+      <Files Directory="SetupFolder" Include="$(var.StageDir)setup\**" />
+      <Files Directory="LicensesFolder" Include="$(var.StageDir)licenses\**" />
+    </ComponentGroup>
+
+    <!-- Start menu shortcut for all users; the key path under HKCU is what Windows Installer
+         expects for a shortcut component (ICE38/ICE43). -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut">
+        <Shortcut Id="SettingsShortcut" Name="LLaIME 設定" Description="LLaIME 注音輸入法設定"
+                  Target="[#SettingsExe]" WorkingDirectory="SettingsFolder" Icon="AppIcon" />
+        <RegistryValue Root="HKCU" Key="Software\LLaIME\Installer" Name="StartMenuShortcut"
+                       Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="LLaIME 注音輸入法" AllowAbsent="no">
+      <ComponentGroupRef Id="Tips" />
+      <ComponentGroupRef Id="Engine" />
+      <ComponentGroupRef Id="Settings" />
+      <ComponentGroupRef Id="Data" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+
+    <!-- The engine (one per signed-in user) and the settings app hold their files open. -->
+    <util:CloseApplication Id="CloseEngine" Target="LLaIME.Engine.exe" CloseMessage="no"
+                           TerminateProcess="0" RebootPrompt="no" />
+    <util:CloseApplication Id="CloseSettings" Target="LLaIME.Settings.exe" CloseMessage="yes"
+                           TerminateProcess="0" RebootPrompt="no" />
+
+    <!-- TSF registration: DllRegisterServer of each TIP registers the COM class, the 注音
+         profile and its categories. -->
+    <SetProperty Id="RegisterTip64" Sequence="execute" Before="RegisterTip64"
+                 Value="&quot;[System64Folder]regsvr32.exe&quot; /s &quot;[#Tip64]&quot;" />
+    <CustomAction Id="RegisterTip64" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec"
+                  Execute="deferred" Impersonate="no" Return="check" />
+    <SetProperty Id="RegisterTip32" Sequence="execute" Before="RegisterTip32"
+                 Value="&quot;[SystemFolder]regsvr32.exe&quot; /s &quot;[#Tip32]&quot;" />
+    <CustomAction Id="RegisterTip32" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec"
+                  Execute="deferred" Impersonate="no" Return="check" />
+    <SetProperty Id="UnregisterTip64" Sequence="execute" Before="UnregisterTip64"
+                 Value="&quot;[System64Folder]regsvr32.exe&quot; /s /u &quot;[#Tip64]&quot;" />
+    <CustomAction Id="UnregisterTip64" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+    <SetProperty Id="UnregisterTip32" Sequence="execute" Before="UnregisterTip32"
+                 Value="&quot;[SystemFolder]regsvr32.exe&quot; /s /u &quot;[#Tip32]&quot;" />
+    <CustomAction Id="UnregisterTip32" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+
+    <!-- The installing user gets LLaIME 注音 in their keyboard list; it is taken out on
+         uninstall (not on upgrade). Runs as that user. -->
+    <SetProperty Id="AddKeyboard" Sequence="execute" Before="AddKeyboard"
+                 Value="&quot;[SetupFolder]LLaIME.InputSetup.exe&quot; --add" />
+    <CustomAction Id="AddKeyboard" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec"
+                  Execute="deferred" Impersonate="yes" Return="ignore" />
+    <SetProperty Id="RemoveKeyboard" Sequence="execute" Before="RemoveKeyboard"
+                 Value="&quot;[SetupFolder]LLaIME.InputSetup.exe&quot; --remove" />
+    <CustomAction Id="RemoveKeyboard" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec"
+                  Execute="deferred" Impersonate="yes" Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="RemoveKeyboard" Before="UnregisterTip64"
+              Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="UnregisterTip64" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="UnregisterTip32" After="UnregisterTip64" Condition="REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="RegisterTip64" After="InstallFiles" Condition="NOT REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="RegisterTip32" After="RegisterTip64" Condition="NOT REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="AddKeyboard" After="RegisterTip32" Condition="NOT Installed AND NOT REMOVE~=&quot;ALL&quot;" />
+    </InstallExecuteSequence>
+
+    <!-- UI: the notices as the license page, and an option to open the settings (to download a
+         model) when done. -->
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.LicenseRtf)" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="開啟 LLaIME 設定，下載選字模型" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WixShellExecTarget" Value="[#SettingsExe]" />
+    <CustomAction Id="LaunchSettings" BinaryRef="Wix4UtilCA_X64" DllEntry="WixShellExec"
+                  Impersonate="yes" />
+    <UI>
+      <ui:WixUI Id="WixUI_Minimal" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchSettings"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+    </UI>
+  </Package>
+</Wix>
