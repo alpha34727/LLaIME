@@ -141,7 +141,7 @@ build\x64\src\Engine\Release\LLaIME.LexiconTest.exe
 快捷鍵的端對端測試（暫存的 `user.db` 裡把「」設成 `mk`、『』設成 `mkk`）：
 
 ```powershell
-buildd\src\Engine\Release\LLaIME.ShortcutTest.exe
+build\x64\src\Engine\Release\LLaIME.ShortcutTest.exe
 ```
 
 2026-10-18 結果：` p m k Enter →「」、` p m k k →『』、組字中途插入（我『』）、沒有對應的鍵被忽略、Esc 取消、Backspace 退回 `，6 項全部通過。
