@@ -12,6 +12,10 @@ public sealed partial class ModelPage : Page
 {
     private readonly List<string> modelPaths_ = [];
     private readonly List<string> deviceNames_ = [];
+    // The engine lists the devices once it is running; until then only 自動 is offered, and the
+    // status timer asks again.
+    private bool devicesLoaded_;
+    private bool devicesLoading_;
     private string layaDir_ = "";
     private bool loading_;
     private DispatcherTimer? statusTimer_;
@@ -36,6 +40,7 @@ public sealed partial class ModelPage : Page
         deviceNames_.Clear();
         deviceNames_.Add("auto");
         DeviceBox.SelectedIndex = 0;
+        devicesLoaded_ = false;
         loading_ = false;
 
         statusTimer_ = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -367,6 +372,13 @@ public sealed partial class ModelPage : Page
 
     private async Task LoadDevicesAsync(string current)
     {
+        if (devicesLoaded_ || devicesLoading_) return;
+        devicesLoading_ = true;
+        try { await LoadDevicesCoreAsync(current); } finally { devicesLoading_ = false; }
+    }
+
+    private async Task LoadDevicesCoreAsync(string current)
+    {
         var devices = await Task.Run(Native.EngineDevices);
         if (devices == null) return;
         loading_ = true;
@@ -391,12 +403,14 @@ public sealed partial class ModelPage : Page
             index = deviceNames_.Count - 1;
         }
         DeviceBox.SelectedIndex = Math.Max(0, index);
+        devicesLoaded_ = true;
         loading_ = false;
     }
 
     private async Task RefreshStatusAsync()
     {
         var status = await Task.Run(Native.EngineStatus);
+        if (status.Running && !devicesLoaded_) _ = LoadDevicesAsync(Native.ReadEngineSetting("model", "device"));
         StartEngineButton.Visibility = status.Running ? Visibility.Collapsed : Visibility.Visible;
         BenchmarkButton.IsEnabled = status.Running && status.State == "ready" && status.Ranker != "none";
         if (!status.Running)

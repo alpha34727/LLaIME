@@ -63,7 +63,7 @@
           <tk:SettingsCard x:Name="ModelPathCard" Header="檔案位置">
             <Button Content="瀏覽…" Click="BrowseModel_Click" />
           </tk:SettingsCard>
-          <tk:SettingsCard Header="加速裝置" Description="大語言模型在哪個裝置上執行。自動：有 NVIDIA 顯示卡用 CUDA，其次用其他顯示卡，最後用 CPU。">
+          <tk:SettingsCard Header="加速裝置" Description="大語言模型在哪個裝置上執行。自動：有 NVIDIA 顯示卡用 CUDA，其次用其他顯示卡（Vulkan），最後用 CPU。">
             <ComboBox x:Name="DeviceBox" MinWidth="320" MaxWidth="420" SelectionChanged="Setting_Changed" />
           </tk:SettingsCard>
           <tk:SettingsCard Header="CPU 執行緒數" Description="0 表示自動。只影響在 CPU 上執行的部分。">
