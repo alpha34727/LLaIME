@@ -17,7 +17,7 @@ public static class Program
     public static async Task<int> Main(string[] args)
     {
         if (args.Length > 0 && args[0] == "links") return await TestLinks();
-        var id = args.Length > 0 ? args[0] : "laya-zh";
+        var id = args.Length > 0 ? args[0] : "laya-zh-tw-ime";
         var repo = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
         var catalog = args.Length > 1 ? args[1] : Path.Combine(repo, "installer", "models.json");
         var root = Path.Combine(Path.GetTempPath(), "llaime-download-test");

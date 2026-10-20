@@ -2,32 +2,47 @@
   "comment": "Models the settings app can download into %LOCALAPPDATA%\\LLaIME\\models. Installed as <root>\\models\\catalog.json. An entry with an empty repo is not published yet and is shown as unavailable. Files are fetched from https://huggingface.co/<repo>/resolve/main/<name> and checked against size and sha256. Other GGUF models are added in the settings app by pasting a Hugging Face link.",
   "models": [
     {
-      "id": "qwen3.5-2b-tw",
+      "id": "qwen3.5-2b-tw-ime",
       "kind": "llm",
       "name": "Qwen3.5-2B 台灣 LoRA（建議）",
-      "description": "以台灣正體中文語料微調的 2B 語言模型，選字最準（評測 dev 88.6%）。建議 4 GB 以上顯示記憶體；CPU 也能跑但較慢。",
+      "description": "以台灣正體中文語料微調的 2B 語言模型，選字最準（Common Voice test 86.1%、立法院 89.3%）。建議 4 GB 以上顯示記憶體；CPU 也能跑但較慢。",
       "license": "Apache-2.0",
       "repo": "alpha34727/Qwen3.5-2B-TW-IME",
       "files": [
         {
           "name": "Qwen3.5-2B-TW-IME-Q4_K_M.gguf",
           "size": 1274396768,
-          "sha256": "cdc08380bac904bdefab0aa8bfb0dc4664b6fa186111bc1133f53c141d445bb6"
+          "sha256": "61449bf3c74f97cef1929e15a5bd6ade0f9450cb7ef4861768da3b406c21a28f"
         }
       ]
     },
     {
-      "id": "laya-zh",
+      "id": "qwen3.5-0.8b-tw-ime",
+      "kind": "llm",
+      "name": "Qwen3.5-0.8B 台灣 LoRA（輕量）",
+      "description": "同樣語料微調的 0.8B 語言模型，準確率約低 1 個百分點（Common Voice test 85.0%），在 CPU 上約快一倍；顯示記憶體 2 GB 即可。",
+      "license": "Apache-2.0",
+      "repo": "alpha34727/Qwen3.5-0.8B-TW-IME",
+      "files": [
+        {
+          "name": "Qwen3.5-0.8B-TW-IME-Q4_K_M.gguf",
+          "size": 529297504,
+          "sha256": "6d84e68bbbab70ed015974d2a59e3aaaa221cf925d05c59d9136c2050be45f69"
+        }
+      ]
+    },
+    {
+      "id": "laya-zh-tw-ime",
       "kind": "laya",
       "name": "決策模型（System 1 Model，CPU 模式）",
-      "description": "沒有顯示卡時用的編碼器排序器，純 CPU 每次約 50 ms。",
+      "description": "沒有顯示卡時用的編碼器排序器，純 CPU 每次約 50 ms（Common Voice test 83.0%）。",
       "license": "Apache-2.0",
-      "repo": "",
+      "repo": "alpha34727/laya-multilingual-TW-IME",
       "files": [
         {
           "name": "laya.int8.onnx",
-          "size": 165630443,
-          "sha256": "0591594d18cdf0e268d09b34813f4a2bc7548cdebaf1acf53e211e0ca8ad1011"
+          "size": 162330347,
+          "sha256": "0d8b997c084e7b324c731c487dcc8f02a43246a99f472e2ed0e51705b0fa351e"
         },
         {
           "name": "tokenizer.bin",
