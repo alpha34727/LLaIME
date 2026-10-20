@@ -74,6 +74,19 @@ std::vector<LlmDevice> LlmScorer::Devices() {
   return out;
 }
 
+std::string LlmScorer::AutoDevice() {
+  std::string discrete, integrated;
+  for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
+    ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+    const std::string name = ggml_backend_dev_name(dev);
+    const auto type = ggml_backend_dev_type(dev);
+    if (type == GGML_BACKEND_DEVICE_TYPE_GPU && name.rfind("CUDA", 0) == 0) return name;
+    if (type == GGML_BACKEND_DEVICE_TYPE_GPU && discrete.empty()) discrete = name;
+    if (type == GGML_BACKEND_DEVICE_TYPE_IGPU && integrated.empty()) integrated = name;
+  }
+  return !discrete.empty() ? discrete : !integrated.empty() ? integrated : "CPU";
+}
+
 bool LlmScorer::Load(const Options& options, std::string* error) {
   options_ = options;
   auto fail = [&](const char* message) {
@@ -83,17 +96,17 @@ bool LlmScorer::Load(const Options& options, std::string* error) {
 
   llama_model_params mp = llama_model_default_params();
   std::vector<ggml_backend_dev_t> devices;
-  const bool cpuOnly = options.device == "CPU";
+  const std::string device = options.device == "auto" ? AutoDevice() : options.device;
+  options_.device = device;
+  const bool cpuOnly = device == "CPU";
   if (cpuOnly) {
     mp.n_gpu_layers = 0;
   } else {
     mp.n_gpu_layers = 999;
-    if (options.device != "auto") {
-      ggml_backend_dev_t dev = ggml_backend_dev_by_name(options.device.c_str());
-      if (!dev) return fail("device not found");
-      devices = {dev, nullptr};
-      mp.devices = devices.data();
-    }
+    ggml_backend_dev_t dev = ggml_backend_dev_by_name(device.c_str());
+    if (!dev) return fail("device not found");
+    devices = {dev, nullptr};
+    mp.devices = devices.data();
   }
   model_ = llama_model_load_from_file(options.modelPath.c_str(), mp);
   if (!model_) return fail("failed to load model");

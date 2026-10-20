@@ -230,7 +230,7 @@ class Engine {
       return false;
     }
     modelName_ = settings.model.substr(settings.model.find_last_of(L"\\/") + 1);
-    deviceName_ = used.device;
+    deviceName_ = FromUtf8(scorer_->device());  // "auto" resolved
     rankerName_ = L"llm";
     // The first decode allocates GPU buffers and compiles kernels; do it now rather than on
     // the user's first keystroke.

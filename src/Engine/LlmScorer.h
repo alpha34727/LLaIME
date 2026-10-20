@@ -38,9 +38,15 @@ class LlmScorer {
   // Loads ggml backends from `backendDir` (where ggml-*.dll live) once per process.
   static void LoadBackends(const std::string& backendDir);
   static std::vector<LlmDevice> Devices();
+  // The device "auto" means: the first CUDA device, else the first discrete GPU (Vulkan on AMD
+  // or Intel cards), else an integrated GPU, else "CPU". One device only: an NVIDIA card is
+  // listed by both the CUDA and the Vulkan backend, and must not be split across the two.
+  static std::string AutoDevice();
 
   bool Load(const Options& options, std::string* error = nullptr);
   bool IsLoaded() const { return context_ != nullptr; }
+  // The device in use ("auto" resolved by Load).
+  const std::string& device() const { return options_.device; }
 
   // Natural-log probability of each candidate (UTF-8) following `context` (UTF-8).
   // Returns an empty vector on failure.

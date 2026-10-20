@@ -2,8 +2,9 @@
 # redistributed): build\installer\LLaIME-<version>-x64.msi, kept as a workflow artifact, and
 # attached to a GitHub release when a v* tag is pushed. The MSI is not code-signed.
 #
-# llama.cpp with its CUDA backend (four GPU architectures) takes hours on a hosted runner, so its
-# install folder is cached, keyed on the llama.cpp commit and the build scripts.
+# llama.cpp with its CUDA (four GPU architectures) and Vulkan backends takes hours on a hosted
+# runner, so its install folder is cached, keyed on the llama.cpp commit, the build scripts and
+# the SDK versions.
 name: MSI
 
 on:
@@ -19,6 +20,11 @@ permissions:
 concurrency:
   group: msi-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  CUDA_VERSION: "13.4.3"
+  VULKAN_SDK_VERSION: "1.4.363.0"
+  VULKAN_SDK_SHA256: "94a82d378f7a5e3e54c9db7d2fb7016af136e14ac0a18dbf0f2f67a36352d141"
 
 jobs:
   msi:
@@ -50,7 +56,7 @@ jobs:
         id: llama
         run: |
           $commit = git rev-parse HEAD:third_party/llama.cpp
-          "key=llama-$commit-$((Get-FileHash scripts/build-llama.ps1).Hash.Substring(0,12))-$((Get-FileHash scripts/fetch-cuda.ps1).Hash.Substring(0,12))" |
+          "key=llama-$commit-cuda$env:CUDA_VERSION-vk$env:VULKAN_SDK_VERSION-$((Get-FileHash scripts/build-llama.ps1).Hash.Substring(0,12))-$((Get-FileHash scripts/fetch-cuda.ps1).Hash.Substring(0,12))" |
             Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT
       - uses: actions/cache@v4
         id: llama-cache
@@ -59,10 +65,21 @@ jobs:
           key: ${{ steps.llama.outputs.key }}
       - name: CUDA Toolkit (redistributable archives)
         if: steps.llama-cache.outputs.cache-hit != 'true'
-        run: ./scripts/fetch-cuda.ps1
-      - name: llama.cpp (CPU and CUDA backends)
+        run: ./scripts/fetch-cuda.ps1 -Version $env:CUDA_VERSION
+      - name: Vulkan SDK (LunarG)
         if: steps.llama-cache.outputs.cache-hit != 'true'
-        run: ./scripts/build-llama.ps1 -CudaPath "$PWD\build\cuda\13.4.3"
+        run: |
+          $v = $env:VULKAN_SDK_VERSION
+          $exe = "$env:RUNNER_TEMP\vulkansdk.exe"
+          Invoke-WebRequest "https://sdk.lunarg.com/sdk/download/$v/windows/vulkansdk-windows-X64-$v.exe" -OutFile $exe
+          $sha = (Get-FileHash -Algorithm SHA256 $exe).Hash.ToLowerInvariant()
+          if ($sha -ne $env:VULKAN_SDK_SHA256) { throw "Vulkan SDK sha256 $sha does not match" }
+          & $exe --root "C:\VulkanSDK\$v" --accept-licenses --default-answer --confirm-command install | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw "Vulkan SDK install failed ($LASTEXITCODE)" }
+          "VULKAN_SDK=C:\VulkanSDK\$v" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+      - name: llama.cpp (CPU, CUDA and Vulkan backends)
+        if: steps.llama-cache.outputs.cache-hit != 'true'
+        run: ./scripts/build-llama.ps1 -Vulkan -CudaPath "$PWD\build\cuda\$env:CUDA_VERSION"
 
       - name: ONNX Runtime
         run: ./scripts/fetch-onnxruntime.ps1
