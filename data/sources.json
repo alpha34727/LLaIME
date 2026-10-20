@@ -1,0 +1,179 @@
+{
+  "sources": [
+    {
+      "id": "commonvoice-zh-TW",
+      "name": "Mozilla Common Voice zh-TW sentence collection",
+      "url": "https://github.com/common-voice/common-voice/tree/main/server/data/zh-TW",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "files": [
+        {
+          "name": "sentence-collector.txt",
+          "sha256": "c85d4b4cb9f20195c015d4c74c947c520e6bdc9e50c83d75d0eaa77c67cf2e7b",
+          "lines": 15581
+        },
+        {
+          "name": "setences.txt",
+          "sha256": "7d6d591f3ac78b368f7e234c937f06e775d52dfbcf90e54fbb1476891cc046e3",
+          "lines": 2899
+        },
+        {
+          "name": "taipei_city_gov.txt",
+          "sha256": "c91936ce350e12bdfe7ac6cd3cd7d8e4164af360a42738c4ec3379efdfee373f",
+          "lines": 355
+        }
+      ],
+      "use": "training text (Laya, Qwen); evaluation sets commonvoice_dev/test"
+    },
+    {
+      "id": "ly-gazette",
+      "name": "立法院公報 meeting records (院會、委員會), speech turns",
+      "provider": "立法院",
+      "dataset": "公報原始檔案 (https://data.ly.gov.tw/getds.action?id=41)",
+      "via": "g0v LY API https://v2.ly.govapi.tw (same gazette files split into speaker turns)",
+      "license": "政府資料開放授權條款－第1版 (Open Government Data License, version 1.0), compatible with CC BY 4.0",
+      "license_url": "https://data.gov.tw/license",
+      "attribution": "立法院，公報原始檔案，政府資料開放授權條款－第1版",
+      "records": 400,
+      "dates": [
+        "2012-03-07",
+        "2026-07-23"
+      ],
+      "files": [
+        {
+          "name": "sentences.txt",
+          "sha256": "70773ddc4bbec78cde828efcc9809194bdea9af125919970daff76cfd9c811ed",
+          "lines": 136415
+        },
+        {
+          "name": "provenance.tsv (official .doc URL of every record)",
+          "sha256": "1ef0d3c1a373c261ca561a6d896cc23da152462cffb27a85c1032819d9147f84"
+        }
+      ],
+      "use": "training text (Laya, Qwen); evaluation set ly_test"
+    },
+    {
+      "id": "ey-news",
+      "name": "行政院即時新聞、行政院雲嘉南區聯合服務中心焦點新聞",
+      "provider": "行政院",
+      "url": [
+        "https://www.ey.gov.tw/opendata/BF42D887A7B414E2/154",
+        "https://www.ey.gov.tw/opendata/BF42D887A7B414E2/88"
+      ],
+      "license": "政府資料開放授權條款－第1版 (Open Government Data License, version 1.0), compatible with CC BY 4.0",
+      "license_url": "https://data.gov.tw/license",
+      "attribution": "行政院，行政院即時新聞／雲嘉南區聯合服務中心焦點新聞，政府資料開放授權條款－第1版",
+      "downloads": [
+        {
+          "feed": "ey-news",
+          "url": "https://www.ey.gov.tw/NewOpenData/json/154",
+          "downloaded": "2026-10-20",
+          "sha256": "b6c7cb9ac9c8ec8ece8ca17e5eca996d0211c8b86e8f4d30140119e242200967",
+          "articles": "500",
+          "sentences": "8884"
+        },
+        {
+          "feed": "ey-yunchianan",
+          "url": "https://www.ey.gov.tw/NewOpenData/json/88",
+          "downloaded": "2026-10-20",
+          "sha256": "416d890bc0c780a97a65ef4bddc79d7c66fc888076ae7cc354e585241df18d75",
+          "articles": "500",
+          "sentences": "2988"
+        }
+      ],
+      "files": [
+        {
+          "name": "sentences.txt",
+          "sha256": "8974f3af7c451951b7756306d99a8c4823087694378c3cb1af29e6cf38dbcb55",
+          "lines": 11872
+        }
+      ],
+      "use": "training text (Laya, Qwen); evaluation set press_test"
+    },
+    {
+      "id": "moj-laws",
+      "name": "全國法規資料庫 laws in force (articles)",
+      "provider": "法務部",
+      "url": "https://law.moj.gov.tw/api/Ch/Law/json",
+      "attribution": "法務部，全國法規資料庫，政府資料開放授權條款－第1版",
+      "license": "Not subject to copyright (著作權法第9條第1項第1款); published under 政府資料開放授權條款－第1版 (Open Government Data License, version 1.0), compatible with CC BY 4.0",
+      "license_url": "https://data.gov.tw/license",
+      "downloads": [
+        {
+          "url": "https://law.moj.gov.tw/api/Ch/Law/json",
+          "downloaded": "2026-10-20",
+          "sha256": "1d2c09a3274eb0b086d89fbea0881ed9354101ce0cb972e9e0649ce0de3134e3",
+          "laws": "1029",
+          "sentences": "18916"
+        }
+      ],
+      "files": [
+        {
+          "name": "sentences.txt",
+          "sha256": "d667d172c3d6c3fca3b7f42822a3ce64f51722ec6883a30c933c7779ce412754",
+          "lines": 18916
+        }
+      ],
+      "use": "training text (Laya, Qwen), a small share"
+    },
+    {
+      "id": "synthetic-breeze",
+      "name": "Everyday sentences generated locally by Breeze-7B-Instruct-v1_0",
+      "generator": "MediaTek-Research/Breeze-7B-Instruct-v1_0 (Apache-2.0)",
+      "generator_url": "https://huggingface.co/MediaTek-Research/Breeze-7B-Instruct-v1_0",
+      "license": "Model Apache-2.0, no terms on its output; the generated text is released with the models",
+      "model_file_sha256": "1e07fb2003a988a9fe099191530d4e9a6f400c1ce476ef84c64888d80e477547",
+      "prompt": "請用台灣人日常說話的口吻，寫 20 句和「{topic}」有關、屬於「{situation}」的句子。\n要求：\n- 使用台灣的正體中文用字與用語。\n- 每句 8 到 30 個字，要像真的會打在手機上的句子，內容彼此不同。\n- 可以有口語詞（像是「欸」、「啦」、「喔」），但不要用注音文或英文縮寫。\n- 每行一句，不要編號，不要加其他說明。",
+      "grid": [
+        77,
+        10
+      ],
+      "kept": 30016,
+      "rejected": {
+        "length": 265,
+        "simplified": 11,
+        "mainland": 124,
+        "duplicate": 133,
+        "held_out": 299
+      },
+      "files": [
+        {
+          "name": "sentences.txt",
+          "sha256": "20048a0f5ac373727a9f7092d087cd4966e8582a7ab163ad999f8af8ee1db245",
+          "lines": 30016
+        }
+      ],
+      "use": "training text (Laya, Qwen)"
+    },
+    {
+      "id": "mcbopomofo",
+      "name": "McBopomofo phrase table (readings, scores)",
+      "url": "https://github.com/openvanilla/McBopomofo",
+      "license": "MIT",
+      "files": [
+        {
+          "name": "data.txt",
+          "sha256": "b08e3b2fca43464c53f8efc0bfd96ca69f53226417be4429c5020b13a68a8868"
+        }
+      ],
+      "use": "readings of training/evaluation text; candidate sentences (lexicon N best)"
+    },
+    {
+      "id": "libchewing-data",
+      "name": "libchewing-data tsi.csv (phrases missing from McBopomofo)",
+      "url": "https://github.com/chewing/libchewing-data",
+      "license": "LGPL-2.1-or-later",
+      "files": [
+        {
+          "name": "supplement-chewing.txt (derived by tools/supplement_lexicon.py)",
+          "sha256": "1e25ab5fb8211f3c10168fd17dda5cc0cbf33d53c50b8ffb9ea7d453e933e9a9"
+        }
+      ],
+      "use": "readings; candidate sentences (lexicon N best)"
+    }
+  ],
+  "not_used": [
+    "教育部《重編國語辭典修訂本》 (CC BY-ND 3.0 TW): no headword, reading or text from it",
+    "Wikipedia (CC BY-SA): no text from it in training; wikipedia_test.tsv is used only to compare with the earlier models and is not published"
+  ]
+}
