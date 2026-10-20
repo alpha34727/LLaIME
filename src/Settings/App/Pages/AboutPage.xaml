@@ -22,7 +22,7 @@
       <TextBlock Text="資料與元件" Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" />
       <tk:SettingsCard Header="McBopomofo 詞庫" Description="MIT 授權 · github.com/openvanilla/McBopomofo" />
       <tk:SettingsCard Header="libchewing-data" Description="LGPL-2.1-or-later · github.com/chewing/libchewing-data" />
-      <tk:SettingsCard Header="教育部《重編國語辭典修訂本》" Description="CC BY-ND 3.0 TW" />
+      <tk:SettingsCard x:Name="MoeCard" Header="教育部《重編國語辭典修訂本》" Description="CC BY-ND 3.0 TW" />
       <tk:SettingsCard Header="llama.cpp" Description="MIT 授權" />
       <tk:SettingsCard Header="ONNX Runtime" Description="MIT 授權" />
       <tk:SettingsCard Header="SQLite" Description="公有領域" />

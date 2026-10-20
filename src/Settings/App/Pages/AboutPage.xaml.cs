@@ -10,5 +10,9 @@ public sealed partial class AboutPage : Page
         VersionText.Text = $"版本 {typeof(AboutPage).Assembly.GetName().Version?.ToString(3)}";
         InstallCard.Description = Native.InstallRoot;
         DataCard.Description = Native.Paths.DataDir;
+#if !INCLUDE_MOE
+        // Builds without the Ministry of Education layer do not use its data.
+        MoeCard.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
+#endif
     }
 }

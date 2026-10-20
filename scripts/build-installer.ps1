@@ -47,7 +47,10 @@ if (-not $SkipBuild) {
   foreach ($arch in 'x64', 'x86') {
     Invoke-Checked "CMake build ($arch)" { cmake --build (Join-Path $repo "build\$arch") --config Release }
   }
-  Invoke-Checked 'Settings app build' { dotnet build (Join-Path $repo 'src\Settings\App') -c Release --nologo -v quiet }
+  # The about page lists the Ministry of Education dictionary only in builds that include it.
+  Invoke-Checked 'Settings app build' {
+    dotnet build (Join-Path $repo 'src\Settings\App') -c Release --nologo -v quiet "-p:IncludeMoe=$($IncludeMoe.IsPresent.ToString().ToLower())"
+  }
 }
 
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
@@ -113,7 +116,15 @@ Rename-Item (Join-Path $stage 'models\models.json') 'catalog.json'
 
 # Licenses
 $licenses = 'licenses'
-Stage (Join-Path $repo 'installer\THIRD-PARTY-NOTICES.txt') $licenses
+# The notices name the Ministry of Education dictionary only in builds that include it.
+$notices = Get-Content (Join-Path $repo 'installer\THIRD-PARTY-NOTICES.txt') -Raw -Encoding UTF8
+$notices = if ($IncludeMoe) {
+  $notices -replace '（只在以 -IncludeMoe 建置的版本中）', ''
+} else {
+  $notices -replace '(?m)^- 教育部《重編國語辭典修訂本》.*\r?\n.*dict\.revised\.moe\.edu\.tw.*\r?\n', ''
+}
+New-Item -ItemType Directory -Force (Join-Path $stage $licenses) | Out-Null
+[IO.File]::WriteAllText((Join-Path $stage "$licenses\THIRD-PARTY-NOTICES.txt"), $notices, [Text.UTF8Encoding]::new($true))
 $licenseFiles = @{
   'McBopomofo.txt' = 'data\raw\McBopomofo\LICENSE.txt'
   'LGPL-2.1.txt' = 'installer\licenses\LGPL-2.1.txt'
@@ -136,7 +147,6 @@ $ort = Get-ChildItem (Join-Path $repo 'build\onnxruntime') -Recurse -Filter 'LIC
 if ($ort) { Copy-Item $ort.FullName (Join-Path $stage "$licenses\onnxruntime.txt") }
 
 # The license page of the installer shows the notices (RTF, Unicode escapes).
-$notices = Get-Content (Join-Path $repo 'installer\THIRD-PARTY-NOTICES.txt') -Raw -Encoding UTF8
 $rtf = New-Object System.Text.StringBuilder
 [void]$rtf.Append('{\rtf1\ansi\ansicpg950\deff0{\fonttbl{\f0\fnil Microsoft JhengHei UI;}}\fs18 ')
 foreach ($ch in $notices.ToCharArray()) {

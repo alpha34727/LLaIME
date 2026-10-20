@@ -26,6 +26,9 @@
     <Product>LLaIME</Product>
     <!-- App.Main handles single-instance redirection. -->
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <!-- build-installer.ps1 -IncludeMoe: the build ships the Ministry of Education layer, and the
+         about page lists its license. -->
+    <DefineConstants Condition="'$(IncludeMoe)' == 'true'">$(DefineConstants);INCLUDE_MOE</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
