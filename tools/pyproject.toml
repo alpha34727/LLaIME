@@ -20,6 +20,7 @@ dependencies = [
     "laya>=0.4.7",
     "onnxscript>=0.7.2",
     "gguf",
+    "sentencepiece>=0.2.2",
 ]
 
 [tool.uv]
