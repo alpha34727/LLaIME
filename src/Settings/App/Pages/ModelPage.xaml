@@ -66,17 +66,23 @@
           <tk:SettingsCard Header="加速裝置" Description="大語言模型在哪個裝置上執行。自動：有 NVIDIA 顯示卡用 CUDA，其次用其他顯示卡（Vulkan），最後用 CPU。">
             <ComboBox x:Name="DeviceBox" MinWidth="320" MaxWidth="420" SelectionChanged="Setting_Changed" />
           </tk:SettingsCard>
-          <tk:SettingsCard Header="CPU 執行緒數" Description="0 表示自動。只影響在 CPU 上執行的部分。">
+          <tk:SettingsCard x:Name="ThreadsCard" Header="CPU 執行緒數" Description="0 表示自動。只影響在 CPU 上執行的部分。">
             <NumberBox x:Name="ThreadsBox" Minimum="0" Maximum="64" SpinButtonPlacementMode="Inline"
                        SmallChange="1" MinWidth="140" ValueChanged="Threads_Changed" />
           </tk:SettingsCard>
         </tk:SettingsExpander.Items>
       </tk:SettingsExpander>
 
-      <tk:SettingsCard x:Name="LayaCard" Header="決策模型（System 1 Model）">
-        <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE9D9;" /></tk:SettingsCard.HeaderIcon>
+      <tk:SettingsExpander x:Name="LayaExpander" Header="決策模型（System 1 Model）" IsExpanded="True">
+        <tk:SettingsExpander.HeaderIcon><FontIcon Glyph="&#xE9D9;" /></tk:SettingsExpander.HeaderIcon>
         <Button Content="選擇資料夾…" Click="BrowseLaya_Click" />
-      </tk:SettingsCard>
+        <tk:SettingsExpander.Items>
+          <tk:SettingsCard Header="加速裝置"
+                           Description="CPU 用 INT8 模型（laya.int8.onnx，約 50 ms）。NVIDIA 顯示卡（CUDA）用 GPU 版模型（laya.fp16.onnx，約 11 ms），資料夾裡沒有時仍用 INT8 模型，不會比較快。">
+            <ComboBox x:Name="LayaDeviceBox" MinWidth="320" MaxWidth="420" SelectionChanged="Setting_Changed" />
+          </tk:SettingsCard>
+        </tk:SettingsExpander.Items>
+      </tk:SettingsExpander>
 
       <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,12,0,0">
         <Button x:Name="ApplyButton" Style="{StaticResource AccentButtonStyle}" Content="套用並重新載入模型"

@@ -76,7 +76,8 @@ $queue = [System.Collections.Generic.Queue[string]]::new()
 $wanted = @{}
 # Backends llama.cpp loads at run time; ggml-vulkan.dll only if llama.cpp was built with -Vulkan
 # (it needs only the driver's vulkan-1.dll, a system DLL).
-foreach ($name in @('LLaIME.Engine.exe', 'onnxruntime_providers_shared.dll', 'ggml-cuda.dll', 'ggml-vulkan.dll') +
+foreach ($name in @('LLaIME.Engine.exe', 'onnxruntime_providers_shared.dll', 'onnxruntime_providers_cuda.dll',
+                   'ggml-cuda.dll', 'ggml-vulkan.dll') +
                   (Get-ChildItem $engineBuild -Filter 'ggml-cpu-*.dll').Name) {
   $queue.Enqueue($name)
 }

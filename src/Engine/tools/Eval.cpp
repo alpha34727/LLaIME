@@ -4,7 +4,8 @@
 //   LLaIME.Eval --lexicon data/build/lexicons --data tests/eval/commonvoice_dev.tsv
 //               [--model models/x.gguf] [--device auto|CPU|CUDA0] [--k 16] [--limit N]
 //               [--prefix "..."] [--no-context] [--dump out.tsv]
-//               [--laya <model dir>] [--threads N]   rank with Laya (ONNX, CPU) instead
+//               [--laya <model dir>] [--threads N] [--laya-device CPU|CUDA0]
+//                                       rank with Laya (ONNX Runtime) instead
 //   LLaIME.Eval --laya <model dir> --laya-check expected.tsv
 //               checks the C++ tokenizer and input layout against Laya's own
 //               (tools/export_laya_tokenizer.py --cases)
@@ -113,6 +114,8 @@ int main(int argc, char** argv) {
       {"--laya", ""},
       {"--laya-check", ""},
       {"--threads", "0"},
+      {"--laya-device", "CPU"},
+      {"--laya-file", ""},
   };
   bool useContext = true;
   for (int i = 1; i < argc; ++i) {
@@ -133,6 +136,8 @@ int main(int argc, char** argv) {
     LayaScorer::Options options;
     options.modelDir = FromUtf8(args["--laya"]);
     options.threads = std::stoi(args["--threads"]);
+    options.device = args["--laya-device"];
+    if (!args["--laya-file"].empty()) options.modelFile = FromUtf8(args["--laya-file"]);
     std::string error;
     if (!laya.Load(options, &error)) {
       fprintf(stderr, "laya load failed: %s\n", error.c_str());

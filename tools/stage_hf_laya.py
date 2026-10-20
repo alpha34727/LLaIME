@@ -28,7 +28,7 @@ SCRIPTS = ["fetch_ly.py", "fetch_press.py", "fetch_laws.py", "gen_synthetic.py",
 CHECKPOINT_FILES = ["model.safetensors", "rl_agent_config.json", "questions.json",
                     "train_report.json", "encoder/config.json", "tokenizer/tokenizer.json",
                     "tokenizer/tokenizer_config.json"]
-ONNX_FILES = ["laya.int8.onnx", "tokenizer.bin"]
+ONNX_FILES = ["laya.int8.onnx", "laya.fp16.onnx", "tokenizer.bin"]
 
 
 def link(src: Path, dst: Path) -> None:

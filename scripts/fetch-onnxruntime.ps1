@@ -1,13 +1,15 @@
 <#
 .SYNOPSIS
-  Downloads the pinned ONNX Runtime release (CPU, x64) into build/onnxruntime for the engine's
-  Laya ranker. src/Engine/CMakeLists.txt picks it up from there.
+  Downloads the pinned ONNX Runtime release (x64, with the CUDA 13 execution provider) into
+  build/onnxruntime for the engine's Laya ranker. src/Engine/CMakeLists.txt picks it up from there.
+  The CUDA provider needs only cuBLAS 13, which the engine already ships for llama.cpp; without
+  an NVIDIA GPU, Laya runs on the CPU provider in the same onnxruntime.dll.
 #>
 $ErrorActionPreference = 'Stop'
 
 $version = '1.30.0'
-$sha256 = 'c6ba983baf5681af108599675d2a89c2d145512d02de28aed0bff177cd0ba949'
-$name = "onnxruntime-win-x64-$version"
+$sha256 = '8fa4b08359af682cd605892cb59077049700b640128bb93fd2c7776cf9f55bdc'
+$name = "onnxruntime-win-x64-gpu_cuda13-$version"
 $url = "https://github.com/microsoft/onnxruntime/releases/download/v$version/$name.zip"
 
 $repo = Split-Path -Parent $PSScriptRoot

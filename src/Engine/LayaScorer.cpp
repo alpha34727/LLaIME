@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <filesystem>
 #include <numeric>
 
 namespace llaime {
@@ -28,7 +30,26 @@ bool LayaScorer::Load(const Options& options, std::string* error) {
     Ort::SessionOptions so;
     so.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
     if (options.threads > 0) so.SetIntraOpNumThreads(options.threads);
-    const std::wstring model = options.modelDir + L"\\" + options.modelFile;
+    if (options.device.rfind("CUDA", 0) == 0) {
+      // Nodes the CUDA provider has no kernel for (some of the INT8 ones) stay on the CPU.
+      OrtCUDAProviderOptions cuda{};
+      cuda.device_id = std::atoi(options.device.c_str() + 4);
+      so.AppendExecutionProvider_CUDA(cuda);
+    }
+    // A GPU runs the fp16 graph (the INT8 one falls back to the CPU for most nodes); the CPU
+    // runs INT8. Either graph is used when it is the only one in the folder.
+    std::wstring file = options.modelFile;
+    const bool gpu = options.device.rfind("CUDA", 0) == 0;
+    auto exists = [&](const wchar_t* name) {
+      std::error_code ec;
+      return std::filesystem::exists(std::filesystem::path(options.modelDir) / name, ec);
+    };
+    if (file.empty()) {
+      file = gpu ? (exists(L"laya.fp16.onnx") ? L"laya.fp16.onnx" : L"laya.int8.onnx")
+                 : (exists(L"laya.int8.onnx") ? L"laya.int8.onnx" : L"laya.fp16.onnx");
+    }
+    modelFile_ = file;
+    const std::wstring model = options.modelDir + L"\\" + file;
     session_ = std::make_unique<Ort::Session>(*env_, model.c_str(), so);
   } catch (const Ort::Exception& e) {
     if (error) *error = e.what();

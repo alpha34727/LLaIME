@@ -72,7 +72,8 @@ print(answer["choice"], answer["probabilities"])
 |---|---|
 | `model.safetensors`、`rl_agent_config.json`、`encoder/`、`tokenizer/`、`questions.json` | PyTorch 檢查點，用 `laya.load()` 讀取 |
 | `train_report.json` | `laya-train` 的報告；其中的準確率是 400 題校準切片的**樣本內**數字，不是留出評測 |
-| `laya.int8.onnx` | 縮小詞表＋INT8 的 ONNX（162 MB） |
+| `laya.int8.onnx` | 縮小詞表＋INT8 的 ONNX（162 MB），CPU 用 |
+| `laya.fp16.onnx` | 縮小詞表＋fp16 的 ONNX（299 MB），NVIDIA 顯示卡用（ONNX Runtime CUDA） |
 | `tokenizer.bin` | 給 LLaIME 的 C++ 斷詞器 |
 | `DATA.md`、`sources.json` | 訓練資料的出處、授權與 SHA-256 |
 | `training/` | 資料下載、清理、生成、題目產生、訓練與匯出腳本；生成的句子與訓練記錄 |
@@ -125,7 +126,9 @@ print(answer["choice"], answer["probabilities"])
 
 只用排序器（詞庫權重 0）：dev 84.7%、test 82.6%、立法院 86.2%、新聞稿 75.4%、維基 66.2%、台灣用字 70.8%。
 
-延遲（每次選字、16 個候選的中位數，i5-12400，8 執行緒）：Common Voice 片段約 50 ms、立法院約 68 ms、新聞稿約 83 ms。
+延遲（每次選字、16 個候選的中位數）：INT8 在 i5-12400（8 執行緒）上 Common Voice 片段約 50 ms、立法院約 68 ms、新聞稿約 83 ms；fp16 在 RTX 5060 Ti（ONNX Runtime 1.30 CUDA）上 Common Voice 片段約 11 ms。INT8 放到 GPU 上不會變快（多數 INT8 節點沒有 CUDA 實作，留在 CPU）。
+
+fp16 版（GPU）在 Common Voice dev 上為 86.1%（INT8 為 85.2%），量化前的 fp32 也是 86.1%。
 
 ### 限制
 

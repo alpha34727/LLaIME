@@ -33,9 +33,10 @@ target_link_libraries(LLaIME.Llm PUBLIC llama)
 # The log-sum-exp over the vocabulary is the hot loop; let it vectorize.
 target_compile_options(LLaIME.Llm PRIVATE /fp:fast)
 
-# ONNX Runtime (CPU) for the Laya ranker, fetched by scripts/fetch-onnxruntime.ps1.
-set(LLAIME_ORT_DIR "${CMAKE_SOURCE_DIR}/build/onnxruntime/onnxruntime-win-x64-1.30.0" CACHE PATH
-    "ONNX Runtime release directory")
+# ONNX Runtime (CPU, and CUDA for NVIDIA GPUs) for the Laya ranker, fetched by
+# scripts/fetch-onnxruntime.ps1.
+set(LLAIME_ORT_DIR "${CMAKE_SOURCE_DIR}/build/onnxruntime/onnxruntime-win-x64-gpu_cuda13-1.30.0"
+    CACHE PATH "ONNX Runtime release directory")
 if(NOT EXISTS "${LLAIME_ORT_DIR}/lib/onnxruntime.lib")
   message(FATAL_ERROR "ONNX Runtime not found in ${LLAIME_ORT_DIR} (run scripts/fetch-onnxruntime.ps1)")
 endif()
@@ -45,7 +46,8 @@ set_target_properties(onnxruntime PROPERTIES
   IMPORTED_LOCATION "${LLAIME_ORT_DIR}/lib/onnxruntime.dll"
   INTERFACE_INCLUDE_DIRECTORIES "${LLAIME_ORT_DIR}/include")
 set(LLAIME_ORT_DLLS "${LLAIME_ORT_DIR}/lib/onnxruntime.dll"
-    "${LLAIME_ORT_DIR}/lib/onnxruntime_providers_shared.dll")
+    "${LLAIME_ORT_DIR}/lib/onnxruntime_providers_shared.dll"
+    "${LLAIME_ORT_DIR}/lib/onnxruntime_providers_cuda.dll")
 
 add_library(LLaIME.Laya STATIC LayaTokenizer.cpp LayaScorer.cpp)
 target_include_directories(LLaIME.Laya PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

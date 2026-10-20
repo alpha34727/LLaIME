@@ -147,6 +147,7 @@ class Engine {
     int threads = 0;
     std::wstring layaDir;
     int layaThreads = 0;
+    std::wstring layaDevice = L"CPU";  // or CUDA<n>
   };
 
   bool Start(const Settings& settings) {
@@ -244,15 +245,24 @@ class Engine {
     LayaScorer::Options options;
     options.modelDir = settings.layaDir;
     options.threads = settings.layaThreads;
+    options.device = ToUtf8(settings.layaDevice);
     std::string error;
-    if (!laya_->Load(options, &error)) {
+    if (!laya_->Load(options, &error) && options.device != "CPU") {
+      // No usable CUDA (driver, GPU): Laya on the CPU still works.
+      SetError("Laya (" + options.device + "): " + error);
+      options.device = "CPU";
+      laya_ = std::make_unique<LayaScorer>();
+      error.clear();
+      if (laya_->Load(options, &error)) error.clear();
+    }
+    if (!laya_->IsLoaded()) {
       fprintf(stderr, "laya load failed: %s\n", error.c_str());
       SetError("Laya: " + error);
       return false;
     }
     modelName_ = L"Laya (" + settings.layaDir.substr(settings.layaDir.find_last_of(L"\\/") + 1) +
                  L")";
-    deviceName_ = L"CPU";
+    deviceName_ = FromUtf8(options.device);
     rankerName_ = L"laya";
     laya_->Score("", {"暖機", "暖身"});
     return true;
@@ -482,6 +492,7 @@ int wmain(int argc, wchar_t** argv) {
     settings.threads = _wtoi(ReadSetting(L"model", L"threads", L"0").c_str());
     settings.layaDir = ReadSetting(L"laya", L"path", L"");
     settings.layaThreads = _wtoi(ReadSetting(L"laya", L"threads", L"0").c_str());
+    settings.layaDevice = ReadSetting(L"laya", L"device", L"CPU");
     for (int i = 1; i + 1 < argc; i += 2) {
       std::wstring key = argv[i];
       if (key == L"--ranker") settings.ranker = argv[i + 1];

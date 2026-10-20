@@ -50,6 +50,26 @@
           "sha256": "70922649e4f697fd9f2a80f8af64e30ee6bc67e23c8ccc7b7a0088fa4b197c1f"
         }
       ]
+    },
+    {
+      "id": "laya-zh-tw-ime-gpu",
+      "kind": "laya",
+      "name": "決策模型 GPU 版（NVIDIA 顯示卡）",
+      "description": "同一個決策模型的 fp16 版，在 NVIDIA 顯示卡上每次選字約 11 ms（CPU 版約 50 ms），準確率略高。下載後在「決策模型」選這個資料夾，加速裝置選 NVIDIA CUDA。",
+      "license": "Apache-2.0",
+      "repo": "alpha34727/laya-multilingual-TW-IME",
+      "files": [
+        {
+          "name": "laya.fp16.onnx",
+          "size": 298636653,
+          "sha256": "3716a4c85b06dc0ad1bcdd6ad57c8bb7d6e94a7044279c43737b4268b524c22f"
+        },
+        {
+          "name": "tokenizer.bin",
+          "size": 7134163,
+          "sha256": "70922649e4f697fd9f2a80f8af64e30ee6bc67e23c8ccc7b7a0088fa4b197c1f"
+        }
+      ]
     }
   ]
 }

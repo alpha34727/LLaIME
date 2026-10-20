@@ -23,8 +23,10 @@ class LayaScorer {
  public:
   struct Options {
     std::wstring modelDir;
-    std::wstring modelFile = L"laya.int8.onnx";
+    std::wstring modelFile;  // empty: laya.fp16.onnx on a GPU, laya.int8.onnx on the CPU
     int threads = 0;  // 0: ONNX Runtime default
+    // "CPU", or "CUDA<n>" for ONNX Runtime's CUDA provider on GPU n (the names llama.cpp uses).
+    std::string device = "CPU";
   };
 
   LayaScorer();
@@ -34,6 +36,7 @@ class LayaScorer {
 
   bool Load(const Options& options, std::string* error = nullptr);
   bool IsLoaded() const { return session_ != nullptr; }
+  const std::wstring& modelFile() const { return modelFile_; }
 
   // The state the model was trained with for this context (the text before the composition).
   static std::string State(const std::string& context);
@@ -52,6 +55,7 @@ class LayaScorer {
   LayaTokenizer tokenizer_;
   std::unique_ptr<Ort::Env> env_;
   std::unique_ptr<Ort::Session> session_;
+  std::wstring modelFile_;
 };
 
 }  // namespace llaime

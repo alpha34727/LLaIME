@@ -12,6 +12,7 @@ public sealed partial class ModelPage : Page
 {
     private readonly List<string> modelPaths_ = [];
     private readonly List<string> deviceNames_ = [];
+    private readonly List<string> layaDeviceNames_ = [];
     // The engine lists the devices once it is running; until then only 自動 is offered, and the
     // status timer asks again.
     private bool devicesLoaded_;
@@ -32,7 +33,7 @@ public sealed partial class ModelPage : Page
         LoadModels(Native.ReadEngineSetting("model", "path"));
         ShowDownloads();
         layaDir_ = Native.ReadEngineSetting("laya", "path");
-        LayaCard.Description = layaDir_.Length > 0 ? layaDir_ : "尚未設定";
+        LayaExpander.Description = layaDir_.Length > 0 ? layaDir_ : "尚未設定";
         ContextBox.Value = Native.ContextChars;
         ThreadsBox.Value = int.TryParse(Native.ReadEngineSetting("model", "threads"), out var t) ? t : 0;
         DeviceBox.Items.Clear();
@@ -40,6 +41,14 @@ public sealed partial class ModelPage : Page
         deviceNames_.Clear();
         deviceNames_.Add("auto");
         DeviceBox.SelectedIndex = 0;
+        // Until the engine lists the devices: the CPU, and the one in the settings.
+        var layaDevice = Native.ReadEngineSetting("laya", "device") is { Length: > 0 } ld ? ld : "CPU";
+        LayaDeviceBox.Items.Clear();
+        layaDeviceNames_.Clear();
+        AddLayaDevice("CPU", "CPU");
+        if (layaDevice != "CPU") AddLayaDevice(layaDevice, layaDevice);
+        LayaDeviceBox.SelectedIndex = layaDeviceNames_.Count - 1;
+        UpdateThreadsCard();
         devicesLoaded_ = false;
         loading_ = false;
 
@@ -312,7 +321,7 @@ public sealed partial class ModelPage : Page
         {
             Native.WriteEngineSetting("laya", "path", model.EnginePath);
             layaDir_ = model.EnginePath;
-            LayaCard.Description = layaDir_;
+            LayaExpander.Description = layaDir_;
         }
         else
         {
@@ -403,6 +412,26 @@ public sealed partial class ModelPage : Page
             index = deviceNames_.Count - 1;
         }
         DeviceBox.SelectedIndex = Math.Max(0, index);
+
+        // Laya runs on ONNX Runtime: the CPU, or an NVIDIA GPU through its CUDA provider.
+        var layaCurrent = layaDeviceNames_[Math.Max(0, LayaDeviceBox.SelectedIndex)];
+        LayaDeviceBox.Items.Clear();
+        layaDeviceNames_.Clear();
+        var cpu = devices.FirstOrDefault(d => d.Name == "CPU");
+        AddLayaDevice("CPU", cpu != null ? $"CPU（{cpu.Description}）" : "CPU");
+        foreach (var d in devices.Where(d => d.Name.StartsWith("CUDA")))
+        {
+            var memory = d.Memory > 0 ? $"，{d.Memory / (1024.0 * 1024 * 1024):0.#} GB" : "";
+            AddLayaDevice(d.Name, $"NVIDIA CUDA：{d.Description}{memory}");
+        }
+        var layaIndex = layaDeviceNames_.FindIndex(n => string.Equals(n, layaCurrent, StringComparison.OrdinalIgnoreCase));
+        if (layaIndex < 0)
+        {
+            AddLayaDevice(layaCurrent, $"{layaCurrent}（目前不可用）");
+            layaIndex = layaDeviceNames_.Count - 1;
+        }
+        LayaDeviceBox.SelectedIndex = layaIndex;
+        UpdateThreadsCard();
         devicesLoaded_ = true;
         loading_ = false;
     }
@@ -450,8 +479,23 @@ public sealed partial class ModelPage : Page
         }
     }
 
+    private void AddLayaDevice(string name, string label)
+    {
+        layaDeviceNames_.Add(name);
+        LayaDeviceBox.Items.Add(label);
+    }
+
+    // Threads only matter for what runs on the CPU: shown for 自動 and CPU.
+    private void UpdateThreadsCard()
+    {
+        var device = DeviceBox.SelectedIndex >= 0 && DeviceBox.SelectedIndex < deviceNames_.Count
+            ? deviceNames_[DeviceBox.SelectedIndex] : "auto";
+        ThreadsCard.Visibility = device is "auto" or "CPU" ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     private void Setting_Changed(object sender, SelectionChangedEventArgs e)
     {
+        if (ReferenceEquals(sender, DeviceBox)) UpdateThreadsCard();
         if (ReferenceEquals(sender, ModelBox)) UpdateModelPath();
         if (!loading_) ApplyButton.IsEnabled = true;
     }
@@ -497,7 +541,7 @@ public sealed partial class ModelPage : Page
             return;
         }
         layaDir_ = folder.Path;
-        LayaCard.Description = layaDir_;
+        LayaExpander.Description = layaDir_;
         ApplyButton.IsEnabled = true;
     }
 
@@ -509,6 +553,7 @@ public sealed partial class ModelPage : Page
         Native.WriteEngineSetting("model", "device", deviceNames_[Math.Max(0, DeviceBox.SelectedIndex)]);
         Native.WriteEngineSetting("model", "threads", ((int)ThreadsBox.Value).ToString());
         if (layaDir_.Length > 0) Native.WriteEngineSetting("laya", "path", layaDir_);
+        if (LayaDeviceBox.SelectedIndex >= 0) Native.WriteEngineSetting("laya", "device", layaDeviceNames_[LayaDeviceBox.SelectedIndex]);
         ApplyButton.IsEnabled = false;
         var reloaded = await Task.Run(Native.ReloadEngine);
         if (!reloaded)
