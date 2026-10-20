@@ -5,7 +5,7 @@ set PYTHONWARNINGS=ignore
 set HF_HUB_DISABLE_PROGRESS_BARS=1
 set TRANSFORMERS_VERBOSITY=error
 set PYTHONIOENCODING=utf-8
-cd /d C:\Users\Johnsou\Desktop\LLaIME
+cd /d %~dp0..
 set LOG=data\build\free\run-lora.log
 echo [train] %date% %time% > %LOG%
 tools\.venv\Scripts\python.exe -X utf8 tools\lora_qwen.py models\hf\Qwen3.5-2B data\build\free\lm_corpus.jsonl data\build\free\qwen3.5-2b-tw-free >> %LOG% 2>&1
