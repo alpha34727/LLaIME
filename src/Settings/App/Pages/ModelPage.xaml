@@ -78,7 +78,7 @@
         <Button Content="選擇資料夾…" Click="BrowseLaya_Click" />
         <tk:SettingsExpander.Items>
           <tk:SettingsCard Header="加速裝置"
-                           Description="CPU 用 INT8 模型（laya.int8.onnx，約 50 ms）。NVIDIA 顯示卡（CUDA）用 GPU 版模型（laya.fp16.onnx，約 11 ms），資料夾裡沒有時仍用 INT8 模型，不會比較快。">
+                           Description="CPU 用 INT8 模型（約 50 ms）；NVIDIA 顯示卡用 GPU 版模型（laya.fp16.onnx，約 11 ms）。">
             <ComboBox x:Name="LayaDeviceBox" MinWidth="320" MaxWidth="420" SelectionChanged="Setting_Changed" />
           </tk:SettingsCard>
         </tk:SettingsExpander.Items>

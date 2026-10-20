@@ -30,6 +30,7 @@ public sealed partial class ModelPage : Page
     {
         loading_ = true;
         Select(RankerBox, Native.ReadEngineSetting("model", "ranker") is { Length: > 0 } r ? r : "auto");
+        UpdateRankerCards();
         LoadModels(Native.ReadEngineSetting("model", "path"));
         ShowDownloads();
         layaDir_ = Native.ReadEngineSetting("laya", "path");
@@ -493,9 +494,18 @@ public sealed partial class ModelPage : Page
         ThreadsCard.Visibility = device is "auto" or "CPU" ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    // Only the settings of the chosen ranker: both for 自動, none for the traditional algorithm.
+    private void UpdateRankerCards()
+    {
+        var ranker = (RankerBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "auto";
+        ModelExpander.Visibility = ranker is "auto" or "llm" ? Visibility.Visible : Visibility.Collapsed;
+        LayaExpander.Visibility = ranker is "auto" or "laya" ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     private void Setting_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (ReferenceEquals(sender, DeviceBox)) UpdateThreadsCard();
+        if (ReferenceEquals(sender, RankerBox)) UpdateRankerCards();
         if (ReferenceEquals(sender, ModelBox)) UpdateModelPath();
         if (!loading_) ApplyButton.IsEnabled = true;
     }
