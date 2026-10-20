@@ -37,6 +37,9 @@
         <NavigationViewItem Content="選字模型與加速" Tag="model">
           <NavigationViewItem.Icon><FontIcon Glyph="&#xE950;" /></NavigationViewItem.Icon>
         </NavigationViewItem>
+        <NavigationViewItem Content="下載模型" Tag="downloads">
+          <NavigationViewItem.Icon><FontIcon Glyph="&#xE896;" /></NavigationViewItem.Icon>
+        </NavigationViewItem>
         <NavigationViewItem Content="詞庫" Tag="lexicons">
           <NavigationViewItem.Icon><FontIcon Glyph="&#xE82D;" /></NavigationViewItem.Icon>
         </NavigationViewItem>

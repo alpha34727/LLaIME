@@ -16,21 +16,6 @@
         </InfoBar.ActionButton>
       </InfoBar>
 
-      <TextBlock Text="下載模型" Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" />
-      <TextBlock TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="0,0,0,4"
-                 Text="安裝程式不含模型。從 Hugging Face 下載到使用者資料夾，下載完會檢查檔案是否完整；中斷後可以接著下載。" />
-      <StackPanel x:Name="DownloadList" Spacing="{StaticResource SettingsCardSpacing}" />
-      <tk:SettingsCard Header="從 Hugging Face 連結下載"
-                       Description="貼上 GGUF 模型的頁面或檔案連結；有多個檔案時可以選擇。">
-        <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE71B;" /></tk:SettingsCard.HeaderIcon>
-        <StackPanel Orientation="Horizontal" Spacing="8">
-          <ProgressRing x:Name="LinkRing" IsActive="False" Width="20" Height="20" />
-          <TextBox x:Name="LinkBox" Width="320" PlaceholderText="例如 https://huggingface.co/unsloth/Qwen3.5-2B-GGUF"
-                   KeyDown="LinkBox_KeyDown" />
-          <Button x:Name="LinkButton" Content="下載" Click="LinkDownload_Click" />
-        </StackPanel>
-      </tk:SettingsCard>
-
       <TextBlock Text="選字方式" Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" />
       <tk:SettingsCard Header="選字模型" Description="自動：有顯示卡時用大語言模型，否則用決策模型。傳統演算法不使用模型，只依詞庫排序。">
         <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE950;" /></tk:SettingsCard.HeaderIcon>

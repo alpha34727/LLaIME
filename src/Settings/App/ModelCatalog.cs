@@ -24,6 +24,7 @@ public class CatalogModel
     public string Name { get; set; } = "";
     public string Description { get; set; } = "";
     public string License { get; set; } = "";
+    public string Quant { get; set; } = "";  // e.g. Q4_K_M, INT8; empty: read off the file name
     public string Repo { get; set; } = "";
     public string Revision { get; set; } = "main";
     public bool Custom { get; set; }  // added from a link

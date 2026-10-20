@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="LLaIME.Settings.Pages.DownloadPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:tk="using:CommunityToolkit.WinUI.Controls">
+  <ScrollViewer>
+    <StackPanel MaxWidth="1000" Padding="56,0,56,40" Spacing="{StaticResource SettingsCardSpacing}">
+      <TextBlock Text="下載模型" Style="{StaticResource PageTitleTextBlockStyle}" />
+      <TextBlock TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="0,0,0,8"
+                 Text="從 Hugging Face 下載，完成後會檢查檔案；中斷後可以接著下載。下載的模型在「選字模型與加速」選用。" />
+
+      <StackPanel x:Name="DownloadList" Spacing="{StaticResource SettingsCardSpacing}" />
+
+      <TextBlock Text="其他模型" Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" />
+      <tk:SettingsCard Header="從 Hugging Face 連結下載" Description="GGUF 模型的頁面或檔案連結">
+        <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE71B;" /></tk:SettingsCard.HeaderIcon>
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <ProgressRing x:Name="LinkRing" IsActive="False" Width="20" Height="20" />
+          <TextBox x:Name="LinkBox" Width="320" PlaceholderText="例如 https://huggingface.co/unsloth/Qwen3.5-2B-GGUF"
+                   KeyDown="LinkBox_KeyDown" />
+          <Button x:Name="LinkButton" Content="下載" Click="LinkDownload_Click" />
+        </StackPanel>
+      </tk:SettingsCard>
+    </StackPanel>
+  </ScrollViewer>
+</Page>

@@ -14,6 +14,7 @@ public sealed partial class MainWindow : Window
     {
         ["general"] = typeof(GeneralPage),
         ["model"] = typeof(ModelPage),
+        ["downloads"] = typeof(DownloadPage),
         ["lexicons"] = typeof(LexiconPage),
         ["userdict"] = typeof(UserDictPage),
         ["about"] = typeof(AboutPage),
@@ -39,7 +40,7 @@ public sealed partial class MainWindow : Window
         if (Native.ReadEngineSetting("model", "path").Length == 0 &&
             Native.ReadEngineSetting("laya", "path").Length == 0)
         {
-            Navigate("model");
+            Navigate("downloads");
         }
     }
 
@@ -53,7 +54,7 @@ public sealed partial class MainWindow : Window
         SetForegroundWindow(Handle);
     }
 
-    // Selects a page by its tag ("general", "model", "lexicons", "userdict", "about").
+    // Selects a page by its tag ("general", "model", "downloads", "lexicons", "userdict", "about").
     public void Navigate(string tag)
     {
         foreach (var item in Nav.MenuItems.Concat(Nav.FooterMenuItems))
