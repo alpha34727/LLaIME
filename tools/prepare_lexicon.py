@@ -10,6 +10,7 @@ can turn the supplements on and off (src/Core/include/llaime/LexiconCatalog.h).
 See supplement_lexicon.py for how the extra phrases are merged and scored.
 """
 
+import argparse
 import hashlib
 import os
 import subprocess
@@ -114,9 +115,13 @@ def compile_mcbopomofo() -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Fetch the dictionary sources and build the lexicon layers.")
+    parser.add_argument("--no-moe", action="store_true",
+                        help="leave out the Ministry of Education layer (not even downloaded)")
+    args = parser.parse_args()
     fetch_git(MCBOPOMOFO_REPO, MCBOPOMOFO_COMMIT, MCBOPOMOFO, sparse="Source/Data")
     fetch_git(CHEWING_REPO, CHEWING_COMMIT, CHEWING)
-    moe_xlsx = fetch_moe()
+    moe_xlsx = None if args.no_moe else fetch_moe()
     compile_mcbopomofo()
     tools = ROOT / "tools"
     main_table = DATA / "data.txt"
@@ -125,10 +130,13 @@ def main() -> None:
     run([sys.executable, str(tools / "supplement_lexicon.py"), "--mcbopomofo", str(main_table),
          "--chewing", str(CHEWING / "dict" / "chewing" / "tsi.csv"), "--output", str(chewing)],
         ROOT)
-    run([sys.executable, str(tools / "supplement_lexicon.py"), "--mcbopomofo", str(main_table),
-         "--moe", str(moe_xlsx), "--output", str(moe)], ROOT)
+    layers = [("mcbopomofo", main_table), ("chewing", chewing)]
+    if moe_xlsx:
+        run([sys.executable, str(tools / "supplement_lexicon.py"), "--mcbopomofo", str(main_table),
+             "--moe", str(moe_xlsx), "--output", str(moe)], ROOT)
+        layers.append(("moe", moe))
     OUTPUT.mkdir(parents=True, exist_ok=True)
-    for layer, source in (("mcbopomofo", main_table), ("chewing", chewing), ("moe", moe)):
+    for layer, source in layers:
         run([sys.executable, str(tools / "build_lexicon.py"), str(source), "--output",
              str(OUTPUT / f"{layer}.bin")], ROOT)
         ini = "[lexicon]\r\n" + "".join(f"{k}={v}\r\n" for k, v in LAYERS[layer].items())

@@ -12,6 +12,8 @@
   CUDA SM list. Default "75-real;86-real;89-real;120-real" (RTX 20, 30, 40 and 50 series). A
   build without the card's SM crashes the engine when it loads the model there; a single SM
   such as "120-real" is only for quick builds on one's own machine.
+.PARAMETER CudaPath
+  CUDA Toolkit folder (e.g. from scriptsetch-cuda.ps1). Default: the machine-wide CUDA_PATH.
 .PARAMETER Vulkan
   Also build the Vulkan backend (requires the Vulkan SDK, VULKAN_SDK env var).
 #>
@@ -19,6 +21,7 @@ param(
   [ValidateSet('Release', 'Debug')] [string] $Configuration = 'Release',
   [string] $CudaArchitectures = '75-real;86-real;89-real;120-real',
   [switch] $NoCuda,
+  [string] $CudaPath = '',
   [switch] $Vulkan
 )
 
@@ -53,7 +56,7 @@ $cmakeArgs = @(
 )
 if (-not $NoCuda) {
   # Use the machine-wide CUDA_PATH (the newest installed toolkit), not a stale session value.
-  $cudaPath = [Environment]::GetEnvironmentVariable('CUDA_PATH', 'Machine')
+  $cudaPath = if ($CudaPath) { $CudaPath } else { [Environment]::GetEnvironmentVariable('CUDA_PATH', 'Machine') }
   if (-not $cudaPath) { throw 'CUDA Toolkit not found (CUDA_PATH)' }
   $env:CUDA_PATH = $cudaPath
   $cmakeArgs += @(

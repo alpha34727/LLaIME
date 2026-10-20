@@ -1,0 +1,90 @@
+# Builds the installer without the Ministry of Education lexicon layer (CC BY-ND 3.0 TW, not
+# redistributed): build\installer\LLaIME-<version>-x64.msi, kept as a workflow artifact, and
+# attached to a GitHub release when a v* tag is pushed. The MSI is not code-signed.
+#
+# llama.cpp with its CUDA backend (four GPU architectures) takes hours on a hosted runner, so its
+# install folder is cached, keyed on the llama.cpp commit and the build scripts.
+name: MSI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths-ignore: ["**.md", "docs/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write  # attach the MSI to releases
+
+concurrency:
+  group: msi-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  msi:
+    runs-on: windows-2025  # Visual Studio 2026
+    timeout-minutes: 350
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: astral-sh/setup-uv@v6
+      - name: CMake and Ninja (as on the development machine)
+        run: |
+          uv tool install cmake
+          uv tool install ninja
+          "$env:USERPROFILE\.local\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: llama.cpp cache key
+        id: llama
+        run: |
+          $commit = git rev-parse HEAD:third_party/llama.cpp
+          "key=llama-$commit-$((Get-FileHash scripts/build-llama.ps1).Hash.Substring(0,12))-$((Get-FileHash scripts/fetch-cuda.ps1).Hash.Substring(0,12))" |
+            Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        id: llama-cache
+        with:
+          path: build/llama/Release/install
+          key: ${{ steps.llama.outputs.key }}
+      - name: CUDA Toolkit (redistributable archives)
+        if: steps.llama-cache.outputs.cache-hit != 'true'
+        run: ./scripts/fetch-cuda.ps1
+      - name: llama.cpp (CPU and CUDA backends)
+        if: steps.llama-cache.outputs.cache-hit != 'true'
+        run: ./scripts/build-llama.ps1 -CudaPath "$PWD\build\cuda\13.4.3"
+
+      - name: ONNX Runtime
+        run: ./scripts/fetch-onnxruntime.ps1
+      - name: Lexicon layers (McBopomofo, libchewing; no MOE)
+        run: python tools/prepare_lexicon.py --no-moe
+        env:
+          PYTHONUTF8: "1"
+
+      - name: Configure
+        run: |
+          cmake --preset x64
+          cmake --preset x86
+      - name: Build the MSI
+        run: ./scripts/build-installer.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LLaIME-msi
+          path: build/installer/LLaIME-*-x64.msi
+          if-no-files-found: error
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/installer/LLaIME-*-x64.msi

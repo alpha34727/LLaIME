@@ -43,6 +43,8 @@ powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1            
 powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1 -IncludeMoe   # 含教育部詞庫層（…-x64-moe.msi）
 ```
 
+GitHub Actions（`.github/workflows/msi.yml`）在每次推到 main 與推送 `v*` 標籤時自動建置不含教育部詞庫層的 MSI：工作流程的 Artifacts 可下載，標籤會附到 Release。CUDA Toolkit 由 `scriptsetch-cuda.ps1` 從 NVIDIA 的可再散布壓縮檔取得；llama.cpp 編好後快取，只有它的版本或建置腳本改變時才重編（第一次約數小時）。
+
 WiX Toolset 7（NuGet 套件，不必另外安裝；專案中已接受其 OSMF EULA）。MSI 約 490 MB，裝到 `C:\Program Files\LLaIME`：
 
 - 輸入法 DLL（x64、x86，以 regsvr32 註冊 TSF）、選字引擎（llama.cpp CPU／CUDA 後端、CUDA 執行階段、ONNX Runtime、隨附 VC++ 執行階段）、設定程式與開始功能表「LLaIME 設定」、詞庫層、第三方授權聲明（安裝畫面的授權頁）。
