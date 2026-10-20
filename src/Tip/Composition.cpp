@@ -222,11 +222,16 @@ void TextService::ResetState() {
   ApplyUserDictionary();
 }
 
-STDMETHODIMP TextService::OnCompositionTerminated(TfEditCookie, ITfComposition* composition) {
+STDMETHODIMP TextService::OnCompositionTerminated(TfEditCookie ec, ITfComposition* composition) {
   return Guarded("OnCompositionTerminated", HRESULT(E_FAIL), [&]() -> HRESULT {
     // The app ended the composition (e.g. focus moved); its text stays in the document. A
     // composition we already dropped may report late; it must not end the current one.
     if (composition && composition_ && composition != composition_.Get()) return S_OK;
+    // The text is no longer being composed: without this its underline would stay.
+    ComPtr<ITfRange> range;
+    if (composition && compositionContext_ && SUCCEEDED(composition->GetRange(&range))) {
+      ClearDisplayAttribute(compositionContext_.Get(), ec, range.Get());
+    }
     LearnFromCommit(composer_.size());
     ResetState();
     return S_OK;

@@ -66,6 +66,7 @@ struct KeyAction {
 
 class TextService final : public ITfTextInputProcessorEx,
                           public ITfThreadMgrEventSink,
+                          public ITfThreadFocusSink,
                           public ITfKeyEventSink,
                           public ITfCompositionSink,
                           public ITfDisplayAttributeProvider,
@@ -91,6 +92,10 @@ class TextService final : public ITfTextInputProcessorEx,
   STDMETHODIMP OnSetFocus(ITfDocumentMgr* focus, ITfDocumentMgr* prevFocus) override;
   STDMETHODIMP OnPushContext(ITfContext* context) override;
   STDMETHODIMP OnPopContext(ITfContext* context) override;
+
+  // ITfThreadFocusSink
+  STDMETHODIMP OnSetThreadFocus() override;
+  STDMETHODIMP OnKillThreadFocus() override;
 
   // ITfKeyEventSink (KeyEventSink.cpp)
   STDMETHODIMP OnSetFocus(BOOL foreground) override;
@@ -206,6 +211,7 @@ class TextService final : public ITfTextInputProcessorEx,
   // composition; a range of one context must never be edited with another's cookie, so a
   // composition left in another context is dropped (its text stays where it was).
   bool CompositionUsable(ITfContext* context);
+  void CommitOnFocusLoss();
 
   // Composition (Composition.cpp)
   void UpdateComposition(ITfContext* context, TfEditCookie ec);
@@ -238,6 +244,7 @@ class TextService final : public ITfTextInputProcessorEx,
   Microsoft::WRL::ComPtr<ITfThreadMgr> threadMgr_;
   TfClientId clientId_ = TF_CLIENTID_NULL;
   DWORD threadMgrEventSinkCookie_ = TF_INVALID_COOKIE;
+  DWORD threadFocusSinkCookie_ = TF_INVALID_COOKIE;
   DWORD conversionSinkCookie_ = TF_INVALID_COOKIE;
   DWORD openCloseSinkCookie_ = TF_INVALID_COOKIE;
   TfGuidAtom inputAttributeAtom_ = TF_INVALID_GUIDATOM;

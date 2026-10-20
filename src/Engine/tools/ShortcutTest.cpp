@@ -16,6 +16,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "TestDesktop.h"
@@ -29,9 +30,40 @@ using namespace llaime::testing;
 
 namespace {
 
-bool Type(HWND target, const std::vector<WORD>& keys) {
+// In a key list: activate a window of another thread for a moment, then come back.
+constexpr WORD kSwitchAway = 0xFFFF;
+
+// A window on its own thread, as another app's would be.
+HWND OtherWindow() {
+  static HWND other = [] {
+    HANDLE ready = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    static HWND created = nullptr;
+    std::thread([ready] {
+      created = CreateWindowExW(WS_EX_TOPMOST, L"STATIC", L"LLaIME other window",
+                                WS_OVERLAPPEDWINDOW | WS_VISIBLE, 700, 200, 300, 120, nullptr,
+                                nullptr, GetModuleHandleW(nullptr), nullptr);
+      SetEvent(ready);
+      MSG msg;
+      while (GetMessageW(&msg, nullptr, 0, 0) > 0) DispatchMessageW(&msg);
+    }).detach();
+    WaitForSingleObject(ready, 5000);
+    CloseHandle(ready);
+    return created;
+  }();
+  return other;
+}
+
+bool Type(HWND target, HWND edit, const std::vector<WORD>& keys) {
   for (WORD vk : keys) {
     if (GetForegroundWindow() != target) return false;
+    if (vk == kSwitchAway) {
+      SetForegroundWindow(OtherWindow());
+      Pump(600);
+      SetForegroundWindow(target);
+      SetFocus(edit);
+      Pump(600);
+      continue;
+    }
     Key(vk);
   }
   Pump(600);
@@ -126,6 +158,9 @@ int wmain() {
       {L"` p m Esc", {grave, 'P', 'M', VK_ESCAPE}, L""},
       // Backspace out of shortcut mode leaves the ` itself.
       {L"` p Back Enter", {grave, 'P', VK_BACK, VK_RETURN}, L"`"},
+      // Switching to another app commits what was being composed: Esc then has nothing to
+      // cancel.
+      {L"ㄨㄛˇ (switch away) Esc", {'J', 'I', '3', kSwitchAway, VK_ESCAPE}, L"我"},
   };
   for (Case& c : cases) {
     if (!switched) break;
@@ -133,7 +168,7 @@ int wmain() {
     SetForegroundWindow(window);
     SetFocus(edit);
     Pump(400);
-    c.typed = Type(window, c.keys);
+    c.typed = Type(window, edit, c.keys);
     wchar_t text[64] = {};
     GetWindowTextW(edit, text, 64);
     c.text = text;

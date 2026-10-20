@@ -319,7 +319,13 @@ void TextService::HandleAction(ITfContext* context, TfEditCookie ec, const KeyAc
   RequestRanking();
 }
 
-STDMETHODIMP TextService::OnSetFocus(BOOL) { return S_OK; }
+// The thread lost the keyboard (another window or app was activated).
+STDMETHODIMP TextService::OnSetFocus(BOOL foreground) {
+  return Guarded("OnSetFocus(key)", HRESULT(S_OK), [&]() -> HRESULT {
+    if (!foreground) CommitOnFocusLoss();
+    return S_OK;
+  });
+}
 
 STDMETHODIMP TextService::OnTestKeyDown(ITfContext*, WPARAM wParam, LPARAM, BOOL* eaten) {
   return Guarded("OnTestKeyDown", HRESULT(E_FAIL), [&]() -> HRESULT {

@@ -38,6 +38,8 @@ STDMETHODIMP TextService::QueryInterface(REFIID riid, void** ppv) {
     if (riid == IID_IUnknown || riid == IID_ITfTextInputProcessor ||
         riid == IID_ITfTextInputProcessorEx) {
       *ppv = static_cast<ITfTextInputProcessorEx*>(this);
+    } else if (riid == IID_ITfThreadFocusSink) {
+      *ppv = static_cast<ITfThreadFocusSink*>(this);
     } else if (riid == IID_ITfThreadMgrEventSink) {
       *ppv = static_cast<ITfThreadMgrEventSink*>(this);
     } else if (riid == IID_ITfKeyEventSink) {
@@ -154,16 +156,34 @@ STDMETHODIMP TextService::Deactivate() {
 bool TextService::InitThreadMgrEventSink() {
   ComPtr<ITfSource> source;
   if (FAILED(threadMgr_.As(&source))) return false;
+  // Optional: tells when another thread's window takes the focus (see OnKillThreadFocus).
+  source->AdviseSink(IID_ITfThreadFocusSink, static_cast<ITfThreadFocusSink*>(this),
+                     &threadFocusSinkCookie_);
   return SUCCEEDED(source->AdviseSink(IID_ITfThreadMgrEventSink,
                                       static_cast<ITfThreadMgrEventSink*>(this),
                                       &threadMgrEventSinkCookie_));
 }
 
 void TextService::UninitThreadMgrEventSink() {
-  if (threadMgrEventSinkCookie_ == TF_INVALID_COOKIE || !threadMgr_) return;
   ComPtr<ITfSource> source;
-  if (SUCCEEDED(threadMgr_.As(&source))) source->UnadviseSink(threadMgrEventSinkCookie_);
+  if (!threadMgr_ || FAILED(threadMgr_.As(&source))) return;
+  if (threadFocusSinkCookie_ != TF_INVALID_COOKIE) source->UnadviseSink(threadFocusSinkCookie_);
+  threadFocusSinkCookie_ = TF_INVALID_COOKIE;
+  if (threadMgrEventSinkCookie_ != TF_INVALID_COOKIE) {
+    source->UnadviseSink(threadMgrEventSinkCookie_);
+  }
   threadMgrEventSinkCookie_ = TF_INVALID_COOKIE;
+}
+
+STDMETHODIMP TextService::OnSetThreadFocus() { return S_OK; }
+
+// Another app's (or thread's) window was activated: the composition is committed here, as when
+// focus moves within the app.
+STDMETHODIMP TextService::OnKillThreadFocus() {
+  return Guarded("OnKillThreadFocus", HRESULT(S_OK), [&]() -> HRESULT {
+    CommitOnFocusLoss();
+    return S_OK;
+  });
 }
 
 STDMETHODIMP TextService::OnInitDocumentMgr(ITfDocumentMgr*) { return S_OK; }
@@ -182,26 +202,34 @@ STDMETHODIMP TextService::OnUninitDocumentMgr(ITfDocumentMgr* docMgr) {
 STDMETHODIMP TextService::OnSetFocus(ITfDocumentMgr* focus, ITfDocumentMgr*) {
   return Guarded("OnSetFocus", HRESULT(E_FAIL), [&]() -> HRESULT {
     CloseCandidates();
-    // Focus left the document we are composing in and the app did not end the composition:
-    // commit it there (later, in that document's own edit session).
+    // Focus left the document we are composing in and the app did not end the composition.
     ComPtr<ITfDocumentMgr> owner;
     if (composition_ && compositionContext_ &&
         SUCCEEDED(compositionContext_->GetDocumentMgr(&owner)) && owner.Get() != focus) {
-      ComPtr<ITfContext> context = compositionContext_;
-      ComPtr<ITfComposition> composition = composition_;
-      ComPtr<TextService> self(this);
-      EditSession::Request(context.Get(), clientId_, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE,
-                           [self, context, composition](TfEditCookie ec) {
-                             if (self->composition_ == composition &&
-                                 self->compositionContext_ == context) {
-                               self->CommitAll(context.Get(), ec);
-                             }
-                             return S_OK;
-                           });
+      CommitOnFocusLoss();
     }
     RequestPrivacyUpdate(focus);
     return S_OK;
   });
+}
+
+// Commits what is being composed when the keyboard focus leaves it (another document, another
+// window or app), as Microsoft Bopomofo does: the text stays, no longer underlined. Done in the
+// composition's own document, later if it cannot be edited right now.
+void TextService::CommitOnFocusLoss() {
+  CloseCandidates();
+  if (!composition_ || !compositionContext_) return;
+  ComPtr<ITfContext> context = compositionContext_;
+  ComPtr<ITfComposition> composition = composition_;
+  ComPtr<TextService> self(this);
+  EditSession::Request(context.Get(), clientId_, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE,
+                       [self, context, composition](TfEditCookie ec) {
+                         if (self->composition_ == composition &&
+                             self->compositionContext_ == context) {
+                           self->CommitAll(context.Get(), ec);
+                         }
+                         return S_OK;
+                       });
 }
 
 STDMETHODIMP TextService::OnPushContext(ITfContext* context) {
