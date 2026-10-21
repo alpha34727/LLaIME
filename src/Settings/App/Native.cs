@@ -61,6 +61,11 @@ internal static class Native
         get => LLaime_GetContextChars();
         set => LLaime_SetContextChars(value);
     }
+    public static int FollowingChars
+    {
+        get => LLaime_GetFollowingChars();
+        set => LLaime_SetFollowingChars(value);
+    }
     public static bool ClearLearning() => LLaime_ClearLearning() != 0;
     public static bool LearningEnabled
     {
@@ -97,6 +102,8 @@ internal static class Native
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int LLaime_RemoveSelection(string key, string text, string prev);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int LLaime_GetContextChars();
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int LLaime_SetContextChars(int chars);
+    [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int LLaime_GetFollowingChars();
+    [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int LLaime_SetFollowingChars(int chars);
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int LLaime_ClearLearning();
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int LLaime_GetLearningEnabled();
     [DllImport(Dll, CharSet = CharSet.Unicode)] private static extern int LLaime_SetLearningEnabled(int enabled);

@@ -71,12 +71,16 @@ ImeSettings LoadImeSettings() {
   }
   settings.userLexiconDir = ReadString(key, L"UserLexiconDir", L"");
   settings.layout = ReadString(key, L"Layout", L"standard");
-  DWORD contextChars = kDefaultContextChars;
-  bytes = sizeof(contextChars);
-  if (RegGetValueW(key, nullptr, L"ContextChars", RRF_RT_REG_DWORD, nullptr, &contextChars,
-                   &bytes) == ERROR_SUCCESS) {
-    settings.contextChars = contextChars > kMaxContextChars ? kMaxContextChars : contextChars;
-  }
+  auto readChars = [&](const wchar_t* name, uint32_t* out) {
+    DWORD chars = 0;
+    DWORD size = sizeof(chars);
+    if (RegGetValueW(key, nullptr, name, RRF_RT_REG_DWORD, nullptr, &chars, &size) ==
+        ERROR_SUCCESS) {
+      *out = chars > kMaxContextChars ? kMaxContextChars : chars;
+    }
+  };
+  readChars(L"ContextChars", &settings.contextChars);
+  readChars(L"FollowingChars", &settings.followingChars);
   DWORD generation = 0;
   bytes = sizeof(generation);
   RegGetValueW(key, nullptr, L"Generation", RRF_RT_REG_DWORD, nullptr, &generation, &bytes);
@@ -112,11 +116,13 @@ bool SaveImeSettings(const ImeSettings& settings) {
   bool ok = setString(L"DisabledLexicons", multi, REG_MULTI_SZ) &&
             setString(L"UserLexiconDir", settings.userLexiconDir, REG_SZ) &&
             setString(L"Layout", settings.layout, REG_SZ);
-  const DWORD contextChars = settings.contextChars > kMaxContextChars ? kMaxContextChars
-                                                                      : settings.contextChars;
-  ok = ok && RegSetValueExW(key, L"ContextChars", 0, REG_DWORD,
-                            reinterpret_cast<const BYTE*>(&contextChars),
-                            sizeof(contextChars)) == ERROR_SUCCESS;
+  auto setChars = [&](const wchar_t* name, uint32_t value) {
+    const DWORD chars = value > kMaxContextChars ? kMaxContextChars : value;
+    return RegSetValueExW(key, name, 0, REG_DWORD, reinterpret_cast<const BYTE*>(&chars),
+                          sizeof(chars)) == ERROR_SUCCESS;
+  };
+  ok = ok && setChars(L"ContextChars", settings.contextChars) &&
+       setChars(L"FollowingChars", settings.followingChars);
   // A new value every time, whatever the previous one was (another process may have saved).
   DWORD generation = GetTickCount() | 1;
   if (generation == ReadSettingsGeneration()) generation += 2;

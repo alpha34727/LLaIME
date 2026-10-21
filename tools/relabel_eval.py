@@ -1,4 +1,5 @@
-"""Re-derive the readings of evaluation TSVs (id, context, text, reading) from other lexicons.
+"""Re-derive the readings of evaluation TSVs (id, context, text, reading[, following]) from
+other lexicons.
 
 Used to take the Ministry of Education dictionary out of the evaluation sets' readings: the
 rows keep their ids, contexts and texts; rows the given lexicons cannot cover are dropped and
@@ -35,7 +36,7 @@ def main() -> None:
                 dropped += 1
                 continue
             changed += reading != parts[3]
-            rows.append("\t".join(parts[:3] + [reading]))
+            rows.append("\t".join(parts[:3] + [reading] + parts[4:]))
         path.write_text("\n".join(rows) + "\n", encoding="utf-8", newline="\n")
         print(f"{path.name}: {len(rows)} rows, {changed} readings changed, {dropped} dropped")
 

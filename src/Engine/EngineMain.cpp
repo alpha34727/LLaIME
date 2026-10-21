@@ -393,7 +393,7 @@ class Engine {
     ++rankRequests_;
     if (request.privateMode) ++privateRankRequests_;
     if (!request.context.empty()) ++contextRankRequests_;
-    std::wstring key = request.context;
+    std::wstring key = request.context + L'\x1e' + request.following;
     for (const auto& c : request.candidates) key += L'\x1f' + c;
     std::lock_guard<std::mutex> lock(mutex_);
     // Checked under the lock: a reload replaces the rankers while holding it.
@@ -408,7 +408,8 @@ class Engine {
       response.scores = laya_->Score(ToUtf8(request.context), candidates);
       for (double& score : response.scores) score *= kLayaScale;
     } else {
-      response.scores = scorer_->Score(kPromptPrefix + ToUtf8(request.context), candidates);
+      response.scores = scorer_->Score(kPromptPrefix + ToUtf8(request.context), candidates,
+                                       ToUtf8(request.following));
     }
     response.ok = response.scores.size() == request.candidates.size();
     if (response.ok && !request.privateMode) cache_.Put(key, response.scores);

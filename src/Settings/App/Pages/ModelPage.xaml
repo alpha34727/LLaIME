@@ -34,6 +34,13 @@
                    SpinButtonPlacementMode="Inline" Width="140" ValueChanged="Context_Changed" />
       </tk:SettingsCard>
 
+      <tk:SettingsCard x:Name="FollowingCard" Header="參考的後文字數"
+                       Description="在句子中間插入文字時，參考游標後多少個字（0 到 128），只有大語言模型會用到。後文能讓選字更準，但每個候選都要多算一次，字數越多越慢；0 表示關閉後文參考。">
+        <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE8D3;" /></tk:SettingsCard.HeaderIcon>
+        <NumberBox x:Name="FollowingBox" Minimum="0" Maximum="128" SmallChange="4" LargeChange="16"
+                   SpinButtonPlacementMode="Inline" Width="140" ValueChanged="Following_Changed" />
+      </tk:SettingsCard>
+
       <tk:SettingsExpander x:Name="ModelExpander" Header="大語言模型" IsExpanded="True"
                            Description="GGUF 格式的因果語言模型。台灣 LoRA 版以台灣正體語料微調，選字較道地。">
         <tk:SettingsExpander.HeaderIcon><FontIcon Glyph="&#xE8F1;" /></tk:SettingsExpander.HeaderIcon>

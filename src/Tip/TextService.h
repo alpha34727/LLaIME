@@ -14,8 +14,12 @@ namespace llaime {
 
 // Lexicons.cpp: the process-wide lexicon with the layers the settings enable.
 std::shared_ptr<const Lexicon> CurrentLexicon();
-// How many characters before the composition the ranker gets as context (the settings).
-uint32_t CurrentContextChars();
+// How many characters before and after the composition the ranker gets (the settings).
+struct ContextChars {
+  uint32_t before;
+  uint32_t after;
+};
+ContextChars CurrentContextChars();
 
 class CandidateWindow;
 class LangBarButton;
@@ -173,7 +177,8 @@ class TextService final : public ITfTextInputProcessorEx,
   bool IsPrivateMode() const { return privateMode_; }
 
   // Language-model reranking (Ranking.cpp)
-  void ReadContextBefore(ITfContext* context, TfEditCookie ec, ITfRange* compositionRange);
+  // The document text before and after the composition (contextText_, followingText_).
+  void ReadContext(ITfContext* context, TfEditCookie ec, ITfRange* compositionRange);
   void RequestRanking();
   // Scores the sentence each open candidate would produce; the results become the
   // probabilities shown in the candidate window. Returns false if no request was sent.
@@ -290,7 +295,8 @@ class TextService final : public ITfTextInputProcessorEx,
   uint32_t candidateRequestId_ = 0;
   std::vector<Sentence> candidateSentences_;
   std::vector<int> candidateSentenceIndex_;
-  std::wstring contextText_;  // document text before the composition
+  std::wstring contextText_;    // document text before the composition
+  std::wstring followingText_;  // and after it
 
   std::shared_ptr<const UserDictionary> userDict_;
   ULONGLONG userDictRequestTick_ = 0;  // a request is on its way since then (0: none)

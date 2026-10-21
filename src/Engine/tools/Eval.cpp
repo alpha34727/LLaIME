@@ -1,9 +1,11 @@
 // Candidate-selection evaluation: lexicon-only conversion vs. language-model reranking of the
-// lexicon's N best conversions, on a TSV of (id, context, text, reading).
+// lexicon's N best conversions, on a TSV of (id, context, text, reading[, following]).
 //
 //   LLaIME.Eval --lexicon data/build/lexicons --data tests/eval/commonvoice_dev.tsv
 //               [--model models/x.gguf] [--device auto|CPU|CUDA0] [--k 16] [--limit N]
 //               [--prefix "..."] [--no-context] [--dump out.tsv]
+//               [--following-chars N]  the LLM also sees up to N characters after the
+//                                       segment (0, the default: none; the IME reads 32)
 //               [--laya <model dir>] [--threads N] [--laya-device CPU|CUDA0]
 //                                       rank with Laya (ONNX Runtime) instead
 //   LLaIME.Eval --laya <model dir> --laya-check expected.tsv
@@ -116,6 +118,7 @@ int main(int argc, char** argv) {
       {"--threads", "0"},
       {"--laya-device", "CPU"},
       {"--laya-file", ""},
+      {"--following-chars", "0"},
   };
   bool useContext = true;
   for (int i = 1; i < argc; ++i) {
@@ -153,6 +156,8 @@ int main(int argc, char** argv) {
   }
   const auto rows = LoadRows(args["--data"], std::stoul(args["--limit"]));
   const size_t k = std::stoul(args["--k"]);
+  const size_t followingChars = std::stoul(args["--following-chars"]);
+  size_t followingRows = 0;
 
   LlmScorer scorer;
   const bool useLlm = !args["--model"].empty();
@@ -215,7 +220,10 @@ int main(int argc, char** argv) {
       if (useLaya) {
         r.lm = laya.Score(useContext ? row.context : "", candidates);
       } else {
-        r.lm = scorer.Score(args["--prefix"] + (useContext ? row.context : ""), candidates);
+        std::wstring following = FromUtf8(row.following).substr(0, followingChars);
+        followingRows += !following.empty();
+        r.lm = scorer.Score(args["--prefix"] + (useContext ? row.context : ""), candidates,
+                            ToUtf8(following));
       }
       latencyMs.push_back(
           std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
@@ -242,7 +250,7 @@ int main(int argc, char** argv) {
   const double n = static_cast<double>(results.size());
   size_t oracle = 0;
   for (const auto& r : results) oracle += r.truth >= 0;
-  printf("rows %zu  k %zu\n", results.size(), k);
+  printf("rows %zu  k %zu  with following text %zu\n", results.size(), k, followingRows);
   printf("lexicon      sentence %.1f%%  char %.2f%%\n", 100 * baselineCorrect / n,
          100.0 * baselineChars / totalChars);
   printf("oracle@%zu    sentence %.1f%%\n", k, 100 * oracle / n);

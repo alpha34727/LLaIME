@@ -1,6 +1,6 @@
 #pragma once
 // Shared by the evaluation tools: UTF-8 conversion and the tests/eval TSV format
-// (id, context, text, reading).
+// (id, context, text, reading[, following]).
 #include <windows.h>
 
 #include <fstream>
@@ -32,6 +32,7 @@ inline std::wstring FromUtf8(const std::string& s) {
 
 struct Row {
   std::string id, context, text;
+  std::string following;  // text after the segment in its sentence (may be empty)
   std::vector<Syllable> reading;
 };
 
@@ -46,7 +47,7 @@ inline std::vector<Row> LoadRows(const std::string& path, size_t limit) {
     std::string col;
     while (std::getline(ss, col, '\t')) cols.push_back(col);
     if (cols.size() < 4) continue;
-    Row row{cols[0], cols[1], cols[2], {}};
+    Row row{cols[0], cols[1], cols[2], cols.size() > 4 ? cols[4] : std::string(), {}};
     std::wstringstream syllables(FromUtf8(cols[3]));
     std::wstring s;
     bool ok = true;

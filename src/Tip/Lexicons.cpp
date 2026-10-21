@@ -26,6 +26,7 @@ struct SharedLexicon {
   ULONGLONG checkedTick = 0;
   std::shared_ptr<const Lexicon> lexicon;
   uint32_t contextChars = kDefaultContextChars;
+  uint32_t followingChars = kDefaultFollowingChars;
 };
 
 SharedLexicon& Shared() {
@@ -68,9 +69,11 @@ std::shared_ptr<const Lexicon> CurrentLexicon() {
   shared.checkedTick = now;
   const uint32_t generation = ReadSettingsGeneration();
   if (shared.loaded && generation == shared.generation) return shared.lexicon;
-  shared.contextChars = LoadImeSettings().contextChars;
+  const ImeSettings settings = LoadImeSettings();
+  shared.contextChars = settings.contextChars;
+  shared.followingChars = settings.followingChars;
   // Keep the old layers if the new set cannot be opened (e.g. a file being replaced).
-  if (auto lexicon = Load(LoadImeSettings()); lexicon || !shared.loaded) {
+  if (auto lexicon = Load(settings); lexicon || !shared.loaded) {
     shared.lexicon = std::move(lexicon);
   }
   shared.loaded = true;
@@ -78,11 +81,11 @@ std::shared_ptr<const Lexicon> CurrentLexicon() {
   return shared.lexicon;
 }
 
-uint32_t CurrentContextChars() {
+ContextChars CurrentContextChars() {
   CurrentLexicon();  // rereads the settings when they changed
   SharedLexicon& shared = Shared();
   std::lock_guard<std::mutex> lock(shared.mutex);
-  return shared.contextChars;
+  return {shared.contextChars, shared.followingChars};
 }
 
 void TextService::ApplyLexicon() {

@@ -577,6 +577,17 @@ LLAIME_API int LLaime_SetContextChars(int chars) {
   return Save(settings) ? 1 : 0;
 }
 
+LLAIME_API int LLaime_GetFollowingChars() {
+  return static_cast<int>(LoadImeSettings().followingChars);
+}
+
+LLAIME_API int LLaime_SetFollowingChars(int chars) {
+  std::lock_guard<std::mutex> lock(B().mutex);
+  ImeSettings settings = LoadImeSettings();
+  settings.followingChars = static_cast<uint32_t>(chars < 0 ? 0 : chars);
+  return Save(settings) ? 1 : 0;
+}
+
 LLAIME_API int LLaime_ClearLearning() {
   std::lock_guard<std::mutex> lock(B().mutex);
   UserStore* store = Store();

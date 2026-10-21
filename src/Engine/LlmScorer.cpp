@@ -187,7 +187,8 @@ bool LlmScorer::DecodeContext(const std::vector<int>& tokens) {
 }
 
 std::vector<double> LlmScorer::Score(const std::string& context,
-                                     const std::vector<std::string>& candidates) {
+                                     const std::vector<std::string>& candidates,
+                                     const std::string& following) {
   if (!context_ || candidates.empty()) return {};
   const size_t count = std::min(candidates.size(), static_cast<size_t>(options_.maxCandidates));
 
@@ -207,7 +208,7 @@ std::vector<double> LlmScorer::Score(const std::string& context,
   llama_memory_t mem = llama_get_memory(context_);
   std::vector<std::vector<int>> candTokens(count);
   for (size_t k = 0; k < count; ++k) {
-    candTokens[k] = Tokenize(candidates[k], false);
+    candTokens[k] = Tokenize(candidates[k] + following, false);
     llama_memory_seq_rm(mem, static_cast<llama_seq_id>(k + 1), -1, -1);
     llama_memory_seq_cp(mem, 0, static_cast<llama_seq_id>(k + 1), -1, -1);
   }

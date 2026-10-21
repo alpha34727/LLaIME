@@ -29,7 +29,6 @@ constexpr double kLexiconWeight = 0.75;
 constexpr double kVariantPenalty = 4.0;
 // Open candidates at or above this probability are listed by probability.
 constexpr double kRankedProbability = 0.01;
-// Characters before the composition given to the model as context.
 
 double CombinedScore(double lm, const Sentence& sentence, const Composer& composer,
                      const UserDictionary* user) {
@@ -40,19 +39,30 @@ double CombinedScore(double lm, const Sentence& sentence, const Composer& compos
 
 }  // namespace
 
-void TextService::ReadContextBefore(ITfContext*, TfEditCookie ec, ITfRange* compositionRange) {
+void TextService::ReadContext(ITfContext*, TfEditCookie ec, ITfRange* compositionRange) {
   contextText_.clear();
+  followingText_.clear();
   if (privateMode_) return;  // never send what was typed into a private field
-  const LONG contextChars = static_cast<LONG>(CurrentContextChars());
-  if (contextChars == 0) return;
-  ComPtr<ITfRange> before;
-  if (FAILED(compositionRange->Clone(&before))) return;
-  before->Collapse(ec, TF_ANCHOR_START);
-  LONG shifted = 0;
-  before->ShiftStart(ec, -contextChars, &shifted, nullptr);
-  std::wstring buf(contextChars, L'\0');
-  ULONG got = 0;
-  if (SUCCEEDED(before->GetText(ec, 0, buf.data(), contextChars, &got))) contextText_.assign(buf, 0, got);
+  // Up to the set number of characters on each side (0: that side is not read); an app that
+  // does not expose the text after the insertion point gives none.
+  const ContextChars chars = CurrentContextChars();
+  auto read = [&](TfAnchor anchor, LONG contextChars, std::wstring* out) {
+    if (contextChars == 0) return;
+    ComPtr<ITfRange> range;
+    if (FAILED(compositionRange->Clone(&range))) return;
+    range->Collapse(ec, anchor);
+    LONG shifted = 0;
+    if (anchor == TF_ANCHOR_START) {
+      range->ShiftStart(ec, -contextChars, &shifted, nullptr);
+    } else {
+      range->ShiftEnd(ec, contextChars, &shifted, nullptr);
+    }
+    std::wstring buf(contextChars, L'\0');
+    ULONG got = 0;
+    if (SUCCEEDED(range->GetText(ec, 0, buf.data(), contextChars, &got))) out->assign(buf, 0, got);
+  };
+  read(TF_ANCHOR_START, static_cast<LONG>(chars.before), &contextText_);
+  read(TF_ANCHOR_END, static_cast<LONG>(chars.after), &followingText_);
 }
 
 void TextService::RequestRanking() {
@@ -65,6 +75,7 @@ void TextService::RequestRanking() {
   request.requestId = ++lastRequestId_;
   request.privateMode = privateMode_;
   request.context = privateMode_ ? std::wstring() : contextText_;
+  request.following = privateMode_ ? std::wstring() : followingText_;
   for (const Sentence& s : rankedSentences_) request.candidates.push_back(s.Text());
   engine_->Submit(std::move(request));
 }
@@ -104,6 +115,7 @@ bool TextService::RequestCandidateProbabilities() {
   request.requestId = ++lastRequestId_;
   request.privateMode = privateMode_;
   request.context = privateMode_ ? std::wstring() : contextText_;
+  request.following = privateMode_ ? std::wstring() : followingText_;
   for (const Sentence& s : candidateSentences_) request.candidates.push_back(s.Text());
   candidateRequestId_ = request.requestId;
   rankedGeneration_ = composer_.generation();

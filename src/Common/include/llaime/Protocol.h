@@ -13,7 +13,7 @@
 
 namespace llaime::protocol {
 
-inline constexpr uint32_t kVersion = 2;
+inline constexpr uint32_t kVersion = 3;
 
 // String SID of the current process's user, used to name per-user objects.
 inline std::wstring CurrentUserSid() {
@@ -62,6 +62,7 @@ struct RankRequest {
   uint32_t requestId = 0;
   bool privateMode = false;  // the field is a password / private browsing: nothing may be kept
   std::wstring context;      // text before the composition (may be empty)
+  std::wstring following;    // text after the composition (may be empty)
   std::vector<std::wstring> candidates;
 };
 
@@ -233,6 +234,7 @@ inline std::vector<uint8_t> Encode(const RankRequest& r) {
   w.U32(r.requestId);
   w.U32(r.privateMode ? 1 : 0);
   w.Str(r.context);
+  w.Str(r.following);
   w.U32(static_cast<uint32_t>(r.candidates.size()));
   for (const auto& c : r.candidates) w.Str(c);
   return w.bytes();
@@ -240,7 +242,8 @@ inline std::vector<uint8_t> Encode(const RankRequest& r) {
 
 inline bool Decode(Reader& in, RankRequest* r) {
   uint32_t priv = 0, count = 0;
-  if (!in.U32(&r->requestId) || !in.U32(&priv) || !in.Str(&r->context) || !in.U32(&count) ||
+  if (!in.U32(&r->requestId) || !in.U32(&priv) || !in.Str(&r->context) || !in.Str(&r->following) ||
+      !in.U32(&count) ||
       count > 64) {
     return false;
   }

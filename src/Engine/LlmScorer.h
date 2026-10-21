@@ -48,9 +48,12 @@ class LlmScorer {
   // The device in use ("auto" resolved by Load).
   const std::string& device() const { return options_.device; }
 
-  // Natural-log probability of each candidate (UTF-8) following `context` (UTF-8).
+  // Natural-log probability of each candidate (UTF-8) following `context` (UTF-8). With
+  // `following` (the text after the candidate), the probability of the candidate followed by
+  // that text: log P(candidate + following | context), tokenized together.
   // Returns an empty vector on failure.
-  std::vector<double> Score(const std::string& context, const std::vector<std::string>& candidates);
+  std::vector<double> Score(const std::string& context, const std::vector<std::string>& candidates,
+                            const std::string& following = {});
 
   // Where the last Score() call spent its time, in milliseconds.
   struct Timing {

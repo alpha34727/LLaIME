@@ -35,6 +35,7 @@ public sealed partial class ModelPage : Page
         layaDir_ = Native.ReadEngineSetting("laya", "path");
         LayaExpander.Description = layaDir_.Length > 0 ? layaDir_ : "尚未設定";
         ContextBox.Value = Native.ContextChars;
+        FollowingBox.Value = Native.FollowingChars;
         ThreadsBox.Value = int.TryParse(Native.ReadEngineSetting("model", "threads"), out var t) ? t : 0;
         DeviceBox.Items.Clear();
         DeviceBox.Items.Add("自動");
@@ -239,6 +240,7 @@ public sealed partial class ModelPage : Page
         var ranker = (RankerBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "auto";
         ModelExpander.Visibility = ranker is "auto" or "llm" ? Visibility.Visible : Visibility.Collapsed;
         LayaExpander.Visibility = ranker is "auto" or "laya" ? Visibility.Visible : Visibility.Collapsed;
+        FollowingCard.Visibility = ModelExpander.Visibility;  // only the language model reads it
     }
 
     private void Setting_Changed(object sender, SelectionChangedEventArgs e)
@@ -254,6 +256,12 @@ public sealed partial class ModelPage : Page
     {
         if (double.IsNaN(sender.Value)) sender.Value = 32;
         if (!loading_) Native.ContextChars = (int)sender.Value;
+    }
+
+    private void Following_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        if (double.IsNaN(sender.Value)) sender.Value = 8;
+        if (!loading_) Native.FollowingChars = (int)sender.Value;
     }
 
     private void Threads_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
