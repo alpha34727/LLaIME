@@ -6,7 +6,7 @@
     <Platform>x64</Platform>
     <InstallerPlatform>x64</InstallerPlatform>
     <Cultures>zh-TW</Cultures>
-    <ProductVersion Condition="'$(ProductVersion)' == ''">0.1.0</ProductVersion>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">0.2.0</ProductVersion>
     <DefineConstants>ProductVersion=$(ProductVersion);StageDir=$(StageDir);LicenseRtf=$(LicenseRtf)</DefineConstants>
     <!-- WiX 7 is under the Open Source Maintenance Fee EULA (https://wixtoolset.org/osmf/). -->
     <AcceptEula>wix7</AcceptEula>

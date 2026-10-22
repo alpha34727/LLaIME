@@ -105,3 +105,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: build/installer/LLaIME-*-x64.msi
+          # Release notes from docs/releases/<tag>.md when there is one.
+          body_path: ${{ hashFiles(format('docs/releases/{0}.md', github.ref_name)) != '' && format('docs/releases/{0}.md', github.ref_name) || '' }}
