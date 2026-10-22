@@ -46,7 +46,7 @@ public static class ModelCatalog
         public List<CatalogModel> Models { get; set; } = [];
     }
 
-    private static readonly HttpClient Http = CreateClient();
+    internal static readonly HttpClient Http = CreateClient();
 
     private static HttpClient CreateClient()
     {
@@ -240,12 +240,20 @@ public static class ModelCatalog
         }
     }
 
-    private static async Task DownloadFileAsync(string repo, string revision, CatalogFile file, string target,
-                                                Action<long> progress, CancellationToken cancel)
+    private static Task DownloadFileAsync(string repo, string revision, CatalogFile file, string target,
+                                          Action<long> progress, CancellationToken cancel)
     {
-        var part = target + ".part";
         var path = string.Join('/', file.Name.Split('/').Select(Uri.EscapeDataString));
         var url = $"https://huggingface.co/{repo}/resolve/{Uri.EscapeDataString(revision)}/{path}";
+        return DownloadUrlAsync(url, file, target, progress, cancel);
+    }
+
+    // Downloads `url` into `target` through target.part, resuming a partial download; checks the
+    // size and, when given, the SHA-256 of `file`. Also used for installer updates.
+    public static async Task DownloadUrlAsync(string url, CatalogFile file, string target,
+                                              Action<long> progress, CancellationToken cancel)
+    {
+        var part = target + ".part";
         using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         long have = File.Exists(part) ? new FileInfo(part).Length : 0;
         if (have > file.Size) { File.Delete(part); have = 0; }

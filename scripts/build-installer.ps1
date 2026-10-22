@@ -47,9 +47,10 @@ if (-not $SkipBuild) {
   foreach ($arch in 'x64', 'x86') {
     Invoke-Checked "CMake build ($arch)" { cmake --build (Join-Path $repo "build\$arch") --config Release }
   }
-  # The about page lists the Ministry of Education dictionary only in builds that include it.
+  # The about page lists the Ministry of Education dictionary only in builds that include it,
+  # and the updater compares the version (from CMakeLists.txt) with the latest release.
   Invoke-Checked 'Settings app build' {
-    dotnet build (Join-Path $repo 'src\Settings\App') -c Release --nologo -v quiet "-p:IncludeMoe=$($IncludeMoe.IsPresent.ToString().ToLower())"
+    dotnet build (Join-Path $repo 'src\Settings\App') -c Release --nologo -v quiet "-p:IncludeMoe=$($IncludeMoe.IsPresent.ToString().ToLower())" "-p:Version=$version"
   }
 }
 

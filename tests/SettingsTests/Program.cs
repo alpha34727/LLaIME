@@ -17,6 +17,7 @@ public static class Program
     public static async Task<int> Main(string[] args)
     {
         if (args.Length > 0 && args[0] == "links") return await TestLinks();
+        if (args.Length > 0 && args[0] == "update") return await TestUpdate();
         var id = args.Length > 0 ? args[0] : "laya-zh-tw-ime";
         var repo = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
         var catalog = args.Length > 1 ? args[1] : Path.Combine(repo, "installer", "models.json");
@@ -87,6 +88,53 @@ public static class Program
 
         Directory.Delete(root, true);
         Console.WriteLine(failures == 0 ? "all passed" : $"{failures} failed");
+        return failures;
+    }
+
+    // The updater against the latest GitHub release: finds this variant's installer and its
+    // checksum, downloads it with a cancel and a resume, then reuses the finished file. The
+    // installer is not started.
+    private static async Task<int> TestUpdate()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "llaime-update-test");
+        if (Directory.Exists(root)) Directory.Delete(root, true);
+        Native.Paths.DataDir = root;
+        var failures = 0;
+        void Check(string what, bool ok)
+        {
+            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")} {what}");
+            if (!ok) failures++;
+        }
+        var release = await Updater.CheckAsync(CancellationToken.None);
+        Console.WriteLine($"latest {release.Tag} ({release.Version}), installer {release.Installer?.Name} {release.Installer?.Size:N0} bytes, sha256 {release.Installer?.Sha256}");
+        Check("installer with checksum", release.Installer is { Sha256.Length: 64 });
+        if (release.Installer == null) return failures;
+        var size = release.Installer.Size;
+
+        using (var cancel = new CancellationTokenSource())
+        {
+            var progress = new Progress<long>(done => { if (done > size / 10) cancel.Cancel(); });
+            try
+            {
+                await Updater.DownloadAsync(release, progress, cancel.Token);
+                Check("cancelled", false);
+            }
+            catch (OperationCanceledException)
+            {
+                var part = Directory.GetFiles(root, "*.part", SearchOption.AllDirectories).SingleOrDefault();
+                Check($"cancelled, partial file kept ({(part != null ? new FileInfo(part).Length : 0):N0} bytes)", part != null);
+            }
+        }
+        var path = await Updater.DownloadAsync(release, new Progress<long>(), CancellationToken.None);
+        Check("resumed and verified", new FileInfo(path).Length == size);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var again = await Updater.DownloadAsync(release, new Progress<long>(), CancellationToken.None);
+        Check($"finished file reused ({watch.Elapsed.TotalSeconds:N1} s)", again == path && watch.Elapsed.TotalSeconds < 30);
+        // A corrupted file is downloaded again, not run.
+        await using (var f = new FileStream(path, FileMode.Open)) { f.Position = size / 2; f.WriteByte(0); }
+        var redone = await Updater.DownloadAsync(release, new Progress<long>(), CancellationToken.None);
+        Check("corrupted file replaced", new FileInfo(redone).Length == size);
+        Directory.Delete(root, true);
         return failures;
     }
 

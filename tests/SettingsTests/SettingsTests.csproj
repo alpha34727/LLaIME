@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- Download test for the settings app's model catalog (src/Settings/App/ModelCatalog.cs):
          dotnet run -c Release, optionally followed by a model id and a catalog path
-       Downloads into a temporary folder, cancels halfway, resumes, and checks the result. -->
+       Downloads into a temporary folder, cancels halfway, resumes, and checks the result.
+       dotnet run -c Release update: the same for the installer of the latest GitHub release. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
@@ -11,5 +12,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\src\Settings\App\ModelCatalog.cs" Link="ModelCatalog.cs" />
+    <Compile Include="..\..\src\Settings\App\Updater.cs" Link="Updater.cs" />
   </ItemGroup>
 </Project>

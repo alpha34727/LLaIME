@@ -16,9 +16,17 @@
           <tk:SettingsCard x:Name="InstallCard" Header="安裝位置" />
           <tk:SettingsCard x:Name="DataCard" Header="使用者資料" />
           <tk:SettingsCard Header="隱私"
-                           Description="所有選字都在這台電腦上完成，不會連網。密碼欄與瀏覽器的無痕／私密視窗不學習、不把游標前的文字交給模型，依應用程式回報的欄位類型判斷。" />
+                           Description="所有選字都在這台電腦上完成，不會連網；只有您下載模型或檢查更新時，才會連到 Hugging Face 或 GitHub。密碼欄與瀏覽器的無痕／私密視窗不學習、不把游標前後的文字交給模型，依應用程式回報的欄位類型判斷。" />
         </tk:SettingsExpander.Items>
       </tk:SettingsExpander>
+      <tk:SettingsCard x:Name="UpdateCard" Header="更新"
+                       Description="從 GitHub 檢查是否有新版本。只有按下按鈕時才會連網。">
+        <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE895;" /></tk:SettingsCard.HeaderIcon>
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <ProgressBar x:Name="UpdateProgress" Width="160" VerticalAlignment="Center" Visibility="Collapsed" />
+          <Button x:Name="UpdateButton" Content="檢查更新" Click="Update_Click" />
+        </StackPanel>
+      </tk:SettingsCard>
       <TextBlock Text="資料與元件" Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" />
       <tk:SettingsCard Header="McBopomofo 詞庫" Description="MIT 授權 · github.com/openvanilla/McBopomofo" />
       <tk:SettingsCard Header="libchewing-data" Description="LGPL-2.1-or-later · github.com/chewing/libchewing-data" />
