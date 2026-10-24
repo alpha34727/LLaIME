@@ -108,9 +108,10 @@ KeyAction TextService::ClassifyKey(WPARAM vk) const {
   // A plain character goes into the composition while composing, is inserted as full width in
   // full-width mode, and otherwise reaches the app exactly as typed. Full-width punctuation
   // starts the composition (shown underlined until committed); half-width punctuation outside a
-  // composition is typed directly, as in Microsoft Bopomofo.
+  // composition is typed directly, as in Microsoft Bopomofo. The exception is ` in Chinese
+  // mode: it must be in the composition for ` then p to start a user phrase shortcut.
   auto typeChar = [&](wchar_t c) {
-    if (composing || (fullShape_ && iswpunct(c))) {
+    if (composing || (fullShape_ && iswpunct(c)) || (chineseMode_ && c == L'`')) {
       return MakeLiteral(fullShape_ ? ToFullWidth(c) : std::wstring(1, c));
     }
     return fullShape_ ? MakeInsert(ToFullWidth(c)) : Make(Type::PassThrough);
