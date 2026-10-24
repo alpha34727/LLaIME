@@ -39,6 +39,16 @@ if (-not $vsPath) { throw 'Visual Studio with C++ tools not found' }
 # cmake/ninja from `uv tool install`.
 $env:PATH = "$env:USERPROFILE\.local\bin;$env:PATH"
 
+# Local fixes to llama.cpp (patches\llama.cpp\*.patch), applied to the submodule's working tree
+# unless already applied.
+foreach ($patch in Get-ChildItem (Join-Path $repo 'patches\llama.cpp') -Filter '*.patch' | Sort-Object Name) {
+  git -C $source apply --reverse --check $patch.FullName 2>$null
+  if ($LASTEXITCODE -eq 0) { continue }
+  git -C $source apply $patch.FullName
+  if ($LASTEXITCODE -ne 0) { throw "Cannot apply $($patch.Name)" }
+  Write-Host "Applied $($patch.Name)"
+}
+
 $cmakeArgs = @(
   '-S', $source, '-B', $buildDir, '-G', 'Ninja',
   "-DCMAKE_BUILD_TYPE=$Configuration",

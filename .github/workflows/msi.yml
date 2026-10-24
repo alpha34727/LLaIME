@@ -56,7 +56,9 @@ jobs:
         id: llama
         run: |
           $commit = git rev-parse HEAD:third_party/llama.cpp
-          "key=llama-$commit-cuda$env:CUDA_VERSION-vk$env:VULKAN_SDK_VERSION-$((Get-FileHash scripts/build-llama.ps1).Hash.Substring(0,12))-$((Get-FileHash scripts/fetch-cuda.ps1).Hash.Substring(0,12))" |
+          $patches = (Get-ChildItem patches/llama.cpp -Filter *.patch | Sort-Object Name | Get-FileHash | ForEach-Object Hash) -join ''
+          $patchKey = [BitConverter]::ToString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($patches))).Replace('-', '').Substring(0,12)
+          "key=llama-$commit-cuda$env:CUDA_VERSION-vk$env:VULKAN_SDK_VERSION-$((Get-FileHash scripts/build-llama.ps1).Hash.Substring(0,12))-$((Get-FileHash scripts/fetch-cuda.ps1).Hash.Substring(0,12))-p$patchKey" |
             Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT
       - uses: actions/cache@v6
         id: llama-cache
