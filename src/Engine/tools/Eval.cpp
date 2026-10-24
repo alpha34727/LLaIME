@@ -4,6 +4,7 @@
 //   LLaIME.Eval --lexicon data/build/lexicons --data tests/eval/commonvoice_dev.tsv
 //               [--model models/x.gguf] [--device auto|CPU|CUDA0] [--k 16] [--limit N]
 //               [--prefix "..."] [--no-context] [--dump out.tsv]
+//               [--batch-layout auto|trie|padded]
 //               [--following-chars N]  the LLM also sees up to N characters after the
 //                                       segment (0, the default: none; the IME reads 32)
 //               [--laya <model dir>] [--threads N] [--laya-device CPU|CUDA0]
@@ -119,6 +120,7 @@ int main(int argc, char** argv) {
       {"--laya-device", "CPU"},
       {"--laya-file", ""},
       {"--following-chars", "0"},
+      {"--batch-layout", "auto"},
   };
   bool useContext = true;
   for (int i = 1; i < argc; ++i) {
@@ -172,6 +174,7 @@ int main(int argc, char** argv) {
     options.modelPath = args["--model"];
     options.device = args["--device"];
     options.maxCandidates = static_cast<int>(k);
+    options.batchLayout = args["--batch-layout"];
     std::string error;
     auto loadStart = std::chrono::steady_clock::now();
     if (!scorer.Load(options, &error)) {

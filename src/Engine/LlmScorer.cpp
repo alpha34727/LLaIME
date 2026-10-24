@@ -1,9 +1,11 @@
 #include "LlmScorer.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <mutex>
+#include <thread>
 
 #include "ggml-backend.h"
 #include "llama.h"
@@ -128,6 +130,10 @@ bool LlmScorer::Load(const Options& options, std::string* error) {
   if (cpuOnly) cp.op_offload = false;
   context_ = llama_init_from_model(model_, cp);
   if (!context_) return fail("failed to create context");
+  paddedBatch_ = options.batchLayout == "padded" ||
+                 (options.batchLayout == "auto" &&
+                  (llama_model_is_recurrent(model_) || llama_model_is_hybrid(model_)));
+  softmaxThreads_ = std::clamp<size_t>(std::thread::hardware_concurrency() / 2, 1, 8);
   return true;
 }
 
@@ -237,18 +243,47 @@ std::vector<double> LlmScorer::Score(const std::string& context,
     }
   }
 
-  llama_batch batch = llama_batch_init(static_cast<int32_t>(nodes.size()), 0,
-                                       static_cast<int32_t>(count));
   const llama_pos base = static_cast<llama_pos>(contextTokens.size());
-  for (TrieNode& node : nodes) {
-    const int j = batch.n_tokens++;
-    node.batchIndex = j;
-    batch.token[j] = node.token;
-    batch.pos[j] = base + node.depth;
-    batch.n_seq_id[j] = static_cast<int32_t>(node.seqs.size());
-    for (size_t q = 0; q < node.seqs.size(); ++q) batch.seq_id[j][q] = node.seqs[q];
-    // A node's logits predict its children.
-    batch.logits[j] = node.hasChildren;
+  llama_batch batch;
+  if (!paddedBatch_) {
+    // Shared prefixes as one token in several sequences.
+    batch = llama_batch_init(static_cast<int32_t>(nodes.size()), 0, static_cast<int32_t>(count));
+    for (TrieNode& node : nodes) {
+      const int j = batch.n_tokens++;
+      node.batchIndex = j;
+      batch.token[j] = node.token;
+      batch.pos[j] = base + node.depth;
+      batch.n_seq_id[j] = static_cast<int32_t>(node.seqs.size());
+      for (size_t q = 0; q < node.seqs.size(); ++q) batch.seq_id[j][q] = node.seqs[q];
+      // A node's logits predict its children.
+      batch.logits[j] = node.hasChildren;
+    }
+  } else {
+    // Recurrent layers (Qwen3.5's linear attention) split a batch into ubatches of equal-length,
+    // non-overlapping sequence sets, so shared trie tokens would cost one model pass per depth
+    // and branch. Instead every candidate is its own sequence, padded to the longest with its
+    // last token (positions past its end are never read): one ubatch for all. Logits are still
+    // taken once per trie node, from the first candidate through it.
+    size_t longest = 0;
+    for (const auto& tokens : candTokens) longest = std::max(longest, tokens.size());
+    batch = llama_batch_init(static_cast<int32_t>(count * longest), 0, 1);
+    for (size_t k = 0; k < count; ++k) {
+      for (size_t t = 0; t < longest; ++t) {
+        const int j = batch.n_tokens++;
+        const bool real = t < candTokens[k].size();
+        batch.token[j] = real ? candTokens[k][t] : candTokens[k].back();
+        batch.pos[j] = base + static_cast<llama_pos>(t);
+        batch.n_seq_id[j] = 1;
+        batch.seq_id[j][0] = static_cast<llama_seq_id>(k + 1);
+        batch.logits[j] = false;
+        if (!real) continue;
+        TrieNode& node = nodes[path[k][t]];
+        if (node.hasChildren && node.seqs[0] == static_cast<llama_seq_id>(k + 1)) {
+          node.batchIndex = j;
+          batch.logits[j] = true;
+        }
+      }
+    }
   }
   std::vector<double> scores(count, 0.0);
   const bool ok = llama_decode(context_, batch) == 0;
@@ -261,12 +296,24 @@ std::vector<double> LlmScorer::Score(const std::string& context,
     // One log-sum-exp per distinct prediction row: the context row plus internal nodes.
     const float contextLse = LogSumExp(contextLogits_.data(), vocabSize_);
     std::vector<float> nodeLse(nodes.size(), 0);
-    for (const TrieNode& node : nodes) {
-      if (node.hasChildren) {
-        nodeLse[&node - nodes.data()] =
-            LogSumExp(llama_get_logits_ith(context_, node.batchIndex), vocabSize_);
-      }
+    // (node, its logits); llama_get_logits_ith may reorder the outputs, so only this thread
+    // calls it.
+    std::vector<std::pair<size_t, const float*>> rows;
+    for (size_t n = 0; n < nodes.size(); ++n) {
+      if (nodes[n].hasChildren) rows.emplace_back(n, llama_get_logits_ith(context_, nodes[n].batchIndex));
     }
+    // Each row is a pass over the whole vocabulary (248k for Qwen3.5): spread them over threads.
+    std::atomic<size_t> next{0};
+    auto work = [&] {
+      for (size_t r; (r = next.fetch_add(1)) < rows.size();) {
+        nodeLse[rows[r].first] = LogSumExp(rows[r].second, vocabSize_);
+      }
+    };
+    std::vector<std::thread> threads;
+    const size_t helpers = std::min<size_t>(softmaxThreads_ - 1, rows.size() / 8);
+    for (size_t i = 0; i < helpers; ++i) threads.emplace_back(work);
+    work();
+    for (auto& thread : threads) thread.join();
     timing_.softmax = ms(t2, Clock::now());
     for (const TrieNode& node : nodes) timing_.softmaxRows += node.hasChildren;
     for (size_t k = 0; k < count; ++k) {

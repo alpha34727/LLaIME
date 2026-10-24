@@ -28,6 +28,9 @@ class LlmScorer {
     int threads = 0;            // 0: llama.cpp default
     int contextTokens = 512;    // context window per sequence
     int maxCandidates = 16;
+    // How candidates are batched: "trie" (shared prefixes decoded once), "padded" (one sequence
+    // each, padded to equal length), or "auto": padded for recurrent and hybrid models.
+    std::string batchLayout = "auto";
   };
 
   LlmScorer();
@@ -76,6 +79,8 @@ class LlmScorer {
   int vocabSize_ = 0;
   std::vector<int> cachedContext_;  // tokens currently held by sequence 0
   std::vector<float> contextLogits_;  // logits after the last context token
+  bool paddedBatch_ = false;
+  size_t softmaxThreads_ = 1;
   Timing timing_;
 };
 
