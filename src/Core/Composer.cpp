@@ -1,6 +1,7 @@
 #include "llaime/Composer.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <limits>
 
 namespace llaime {
@@ -168,16 +169,33 @@ const std::vector<Node>& Composer::Walk() const {
 
 std::vector<Sentence> Composer::NBest(size_t k, size_t perSpan) const {
   // k-best Viterbi: every boundary keeps its k best partial paths; a path is a node plus a
-  // pointer to the path it extends (boundary, rank).
+  // pointer to the path it extends (boundary, rank). Paths spelling the same text with another
+  // segmentation (身分證 / 身分+證) are kept once, the best, so the k slots hold k different texts.
   struct Partial {
     double score;
     Node node;
     size_t prevPos;
     size_t prevRank;
+    uint64_t textHash;  // of the text so far, independent of the segmentation
+  };
+  auto extend = [](uint64_t hash, const std::wstring& text) {
+    for (wchar_t c : text) hash = (hash ^ static_cast<uint64_t>(c)) * 0x100000001b3ull;  // FNV-1a
+    return hash;
+  };
+  auto prune = [k](std::vector<Partial>& v) {
+    std::sort(v.begin(), v.end(), [](const Partial& a, const Partial& b) { return a.score > b.score; });
+    std::vector<Partial> kept;
+    for (Partial& p : v) {
+      if (kept.size() == k) break;
+      if (std::none_of(kept.begin(), kept.end(), [&](const Partial& q) { return q.textHash == p.textHash; })) {
+        kept.push_back(std::move(p));
+      }
+    }
+    v = std::move(kept);
   };
   const size_t n = elements_.size();
   std::vector<std::vector<Partial>> paths(n + 1);
-  paths[0].push_back({0, Node{}, 0, 0});
+  paths[0].push_back({0, Node{}, 0, 0, 0xcbf29ce484222325ull});
 
   std::vector<Node> options;
   for (size_t i = 0; i < n; ++i) {
@@ -190,22 +208,14 @@ std::vector<Sentence> Composer::NBest(size_t k, size_t perSpan) const {
       auto& target = paths[i + len];
       for (size_t rank = 0; rank < paths[i].size(); ++rank) {
         for (const Node& option : options) {
-          target.push_back({paths[i][rank].score + option.score, option, i, rank});
+          target.push_back({paths[i][rank].score + option.score, option, i, rank,
+                            extend(paths[i][rank].textHash, option.text)});
         }
       }
       // Keep the k best so far; the target is final once i reaches it.
-      if (target.size() > 4 * k) {
-        std::partial_sort(target.begin(), target.begin() + k, target.end(),
-                          [](const Partial& a, const Partial& b) { return a.score > b.score; });
-        target.resize(k);
-      }
+      if (target.size() > 4 * k) prune(target);
     }
-    if (i + 1 <= n) {
-      auto& next = paths[i + 1];
-      std::sort(next.begin(), next.end(),
-                [](const Partial& a, const Partial& b) { return a.score > b.score; });
-      if (next.size() > k) next.resize(k);
-    }
+    if (i + 1 <= n) prune(paths[i + 1]);
   }
 
   std::vector<Sentence> out;

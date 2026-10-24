@@ -21,6 +21,9 @@ namespace llaime {
 namespace {
 
 constexpr size_t kCandidates = 16;  // the engine scores at most this many per request
+// Lexicon entries per span the N best conversions are built from: with 4, a homophone ranked
+// 5th by the lexicon could never be chosen automatically.
+constexpr size_t kOptionsPerSpan = 8;
 // Combined score = LM log-prob + kLexiconWeight * lexicon log-prob (natural log)
 // - kVariantPenalty per non-Taiwan-standard spelling (身份, 計劃, ...), which general models
 // prefer, + the user's picks among its words (LearnedBonus). Tuned with LLaIME.Eval on
@@ -66,8 +69,10 @@ void TextService::ReadContext(ITfContext*, TfEditCookie ec, ITfRange* compositio
 }
 
 void TextService::RequestRanking() {
-  if (!engine_ || composer_.size() < 2) return;
-  rankedSentences_ = composer_.NBest(kCandidates);
+  // A single syllable is ranked too: with the text around it, the model picks the right
+  // homophone far more often than the lexicon's order (tests/eval/*_short.tsv).
+  if (!engine_ || composer_.size() == 0) return;
+  rankedSentences_ = composer_.NBest(kCandidates, kOptionsPerSpan);
   if (rankedSentences_.size() < 2) return;
   rankedGeneration_ = composer_.generation();
 

@@ -4,7 +4,7 @@
 //   LLaIME.Eval --lexicon data/build/lexicons --data tests/eval/commonvoice_dev.tsv
 //               [--model models/x.gguf] [--device auto|CPU|CUDA0] [--k 16] [--limit N]
 //               [--prefix "..."] [--no-context] [--dump out.tsv]
-//               [--batch-layout auto|trie|padded]
+//               [--batch-layout auto|trie|padded] [--per-span N]
 //               [--following-chars N]  the LLM also sees up to N characters after the
 //                                       segment (0, the default: none; the IME reads 32)
 //               [--laya <model dir>] [--threads N] [--laya-device CPU|CUDA0]
@@ -121,6 +121,7 @@ int main(int argc, char** argv) {
       {"--laya-file", ""},
       {"--following-chars", "0"},
       {"--batch-layout", "auto"},
+      {"--per-span", "8"},  // as the IME (Ranking.cpp kOptionsPerSpan)
   };
   bool useContext = true;
   for (int i = 1; i < argc; ++i) {
@@ -211,7 +212,7 @@ int main(int argc, char** argv) {
 
     Result r;
     std::vector<std::string> candidates;
-    for (const Sentence& s : composer.NBest(k)) {
+    for (const Sentence& s : composer.NBest(k, std::stoul(args["--per-span"]))) {
       r.texts.push_back(s.Text());
       r.lex.push_back(s.score);
       r.variants.push_back(CountNonTaiwanVariants(s.Text()));
