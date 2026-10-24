@@ -22,7 +22,7 @@
     <LangVersion>latest</LangVersion>
     <SatelliteResourceLanguages>zh-TW;en-US</SatelliteResourceLanguages>
     <DefaultLanguage>zh-TW</DefaultLanguage>
-    <Version>0.3.0</Version>
+    <Version>0.4.0</Version>
     <Product>LLaIME</Product>
     <!-- App.Main handles single-instance redirection. -->
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
