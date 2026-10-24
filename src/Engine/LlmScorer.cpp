@@ -1,5 +1,7 @@
 #include "LlmScorer.h"
 
+#include <windows.h>
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -336,6 +338,67 @@ std::vector<double> LlmScorer::Score(const std::string& context,
   }
   if (!ok) return {};
   return scores;
+}
+
+bool LlmScorer::NextLogProbs(const std::string& context,
+                             const std::vector<std::vector<int>>& prefixes,
+                             std::vector<std::vector<float>>* out) {
+  out->clear();
+  if (!context_ || prefixes.empty() || prefixes.size() > static_cast<size_t>(options_.maxCandidates)) {
+    return false;
+  }
+  std::vector<int> contextTokens = Tokenize(context, true);
+  if (contextTokens.empty() || !DecodeContext(contextTokens)) return false;
+  llama_memory_t mem = llama_get_memory(context_);
+  // As Score() with padded sequences: every prefix in its own sequence, padded to the longest.
+  size_t longest = 0;
+  for (const auto& p : prefixes) longest = std::max(longest, p.size());
+  std::vector<int> row(prefixes.size(), -1);  // batch index of each prefix's last token
+  llama_batch batch = llama_batch_init(static_cast<int32_t>(std::max<size_t>(1, prefixes.size() * longest)), 0, 1);
+  const llama_pos base = static_cast<llama_pos>(contextTokens.size());
+  for (size_t k = 0; k < prefixes.size(); ++k) {
+    llama_memory_seq_rm(mem, static_cast<llama_seq_id>(k + 1), -1, -1);
+    if (prefixes[k].empty()) continue;
+    llama_memory_seq_cp(mem, 0, static_cast<llama_seq_id>(k + 1), -1, -1);
+    for (size_t t = 0; t < longest; ++t) {
+      const int j = batch.n_tokens++;
+      const bool real = t < prefixes[k].size();
+      batch.token[j] = real ? prefixes[k][t] : prefixes[k].back();
+      batch.pos[j] = base + static_cast<llama_pos>(t);
+      batch.n_seq_id[j] = 1;
+      batch.seq_id[j][0] = static_cast<llama_seq_id>(k + 1);
+      batch.logits[j] = real && t + 1 == prefixes[k].size();
+      if (batch.logits[j]) row[k] = j;
+    }
+  }
+  const bool ok = batch.n_tokens == 0 || llama_decode(context_, batch) == 0;
+  if (ok) {
+    out->resize(prefixes.size());
+    for (size_t k = 0; k < prefixes.size(); ++k) {
+      const float* logits = row[k] < 0 ? contextLogits_.data() : llama_get_logits_ith(context_, row[k]);
+      const float lse = LogSumExp(logits, vocabSize_);
+      (*out)[k].resize(vocabSize_);
+      for (int v = 0; v < vocabSize_; ++v) (*out)[k][v] = logits[v] - lse;
+    }
+  }
+  llama_batch_free(batch);
+  for (size_t k = 0; k < prefixes.size(); ++k) llama_memory_seq_rm(mem, static_cast<llama_seq_id>(k + 1), -1, -1);
+  return ok;
+}
+
+std::vector<std::wstring> LlmScorer::TokenTexts() const {
+  std::vector<std::wstring> texts(vocabSize_);
+  std::string piece(256, '\0');
+  for (int t = 0; t < vocabSize_; ++t) {
+    if (llama_vocab_is_control(vocab_, t) || llama_vocab_is_eog(vocab_, t)) continue;
+    const int n = llama_token_to_piece(vocab_, t, piece.data(), static_cast<int32_t>(piece.size()), 0, false);
+    if (n <= 0) continue;
+    const int wide = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, piece.data(), n, nullptr, 0);
+    if (wide <= 0) continue;  // a byte piece of a longer character
+    texts[t].resize(wide);
+    MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, piece.data(), n, texts[t].data(), wide);
+  }
+  return texts;
 }
 
 }  // namespace llaime

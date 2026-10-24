@@ -58,6 +58,17 @@ class LlmScorer {
   std::vector<double> Score(const std::string& context, const std::vector<std::string>& candidates,
                             const std::string& following = {});
 
+  // For decoding under a reading constraint (LLaIME.Eval --llm-decode): the log-probability
+  // of every vocabulary token following context + each prefix (token ids, may be empty).
+  // out[k] has vocabSize() entries. Returns false on failure.
+  bool NextLogProbs(const std::string& context, const std::vector<std::vector<int>>& prefixes,
+                    std::vector<std::vector<float>>* out);
+  // Each token's text as UTF-16; empty for control tokens and for byte pieces that are not
+  // whole UTF-8 characters.
+  std::vector<std::wstring> TokenTexts() const;
+  std::vector<int> Tokenize(const std::string& text, bool addSpecial) const;
+  int vocabSize() const { return vocabSize_; }
+
   // Where the last Score() call spent its time, in milliseconds.
   struct Timing {
     double context = 0;     // tokenizing and decoding the context
@@ -69,7 +80,6 @@ class LlmScorer {
   const Timing& LastTiming() const { return timing_; }
 
  private:
-  std::vector<int> Tokenize(const std::string& text, bool addSpecial) const;
   bool DecodeContext(const std::vector<int>& tokens);
 
   Options options_;

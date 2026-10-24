@@ -5,6 +5,8 @@
 //               [--model models/x.gguf] [--device auto|CPU|CUDA0] [--k 16] [--limit N]
 //               [--prefix "..."] [--no-context] [--dump out.tsv]
 //               [--batch-layout auto|trie|padded] [--per-span N]
+//               [--llm-decode B]  also let the model write the text itself (beam B)
+//               [--decode-lexicon-weight W]  ... adding W x the lexicon's score of the text
 //               [--following-chars N]  the LLM also sees up to N characters after the
 //                                       segment (0, the default: none; the IME reads 32)
 //               [--laya <model dir>] [--threads N] [--laya-device CPU|CUDA0]
@@ -19,9 +21,13 @@
 #include <cmath>
 #include <cstdio>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <sstream>
 #include <string>
+#include <span>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "EvalData.h"
@@ -101,6 +107,146 @@ int CheckLaya(LayaScorer& laya, const std::string& path) {
   return mismatches == 0 && rows > 0 ? 0 : 1;
 }
 
+// LLM-led conversion (experiment, --llm-decode B): instead of reranking the lexicon's N best
+// sentences, the model writes the text itself, one vocabulary token at a time, limited to
+// tokens whose every character has the next syllables as a reading (from the lexicon). Beam
+// search over character positions: hypotheses covering the same characters compete, B kept per
+// position, one model call per position. Where a character has no token of its own (rare
+// characters split into byte pieces), the lexicon's best characters for that syllable fill in,
+// scored with their lexicon probability. The pick is the best full text, with the same
+// non-Taiwan-spelling penalty as the reranker.
+// log10 probability of `text` as the lexicon's best segmentation into entries read as
+// `reading` (one syllable per character); -infinity when it cannot be segmented.
+double LexiconScore(const Lexicon& lexicon, const std::vector<Syllable>& reading,
+                    const std::wstring& text) {
+  const size_t n = text.size();
+  std::vector<double> best(n + 1, -std::numeric_limits<double>::infinity());
+  best[0] = 0;
+  std::vector<LexEntry> entries;
+  for (size_t i = 0; i < n; ++i) {
+    if (best[i] == -std::numeric_limits<double>::infinity()) continue;
+    for (size_t len = 1; len <= Lexicon::kMaxPhraseLength && i + len <= n; ++len) {
+      entries.clear();
+      if (!lexicon.Lookup(std::span<const Syllable>(&reading[i], len), entries)) continue;
+      for (const LexEntry& e : entries) {
+        if (e.text == std::wstring_view(text).substr(i, len)) {
+          best[i + len] = std::max(best[i + len], best[i] + e.score);
+          break;
+        }
+      }
+    }
+  }
+  return best[n];
+}
+
+struct DecodeResult {
+  std::wstring text;
+  size_t fills = 0;  // characters the lexicon supplied
+};
+
+DecodeResult LlmDecode(LlmScorer& scorer, const Lexicon& lexicon,
+                       const std::vector<std::wstring>& tokenTexts,
+                       const std::unordered_set<wchar_t>& singleTokenChars,
+                       const std::string& context, const std::vector<Syllable>& reading,
+                       size_t beam, double variantPenalty, double lexiconWeight) {
+  const size_t n = reading.size();
+  // Characters each syllable can be written with, and their lexicon log-probability (natural).
+  std::vector<std::unordered_map<wchar_t, double>> allowed(n);
+  std::vector<std::vector<std::pair<wchar_t, double>>> lexiconChars(n);  // best first
+  for (size_t i = 0; i < n; ++i) {
+    std::vector<LexEntry> entries;
+    lexicon.Lookup(std::span<const Syllable>(&reading[i], 1), entries);
+    for (const LexEntry& e : entries) {
+      if (e.text.size() != 1) continue;
+      if (allowed[i].emplace(e.text[0], e.score * std::log(10.0)).second) {
+        lexiconChars[i].emplace_back(e.text[0], e.score * std::log(10.0));
+      }
+    }
+  }
+  // Tokens that fit at each position: (token, characters).
+  std::vector<std::vector<std::pair<int, size_t>>> fits(n);
+  for (int t = 0; t < static_cast<int>(tokenTexts.size()); ++t) {
+    const std::wstring& s = tokenTexts[t];
+    if (s.empty() || s.size() > n) continue;
+    for (size_t i = 0; i + s.size() <= n; ++i) {
+      bool ok = true;
+      for (size_t j = 0; j < s.size() && ok; ++j) ok = allowed[i + j].count(s[j]) > 0;
+      if (ok) fits[i].emplace_back(t, s.size());
+    }
+  }
+
+  struct Hyp {
+    double score;  // lm + lexiconWeight * lexicon (natural log)
+    std::vector<int> tokens;
+    std::wstring text;
+    size_t fills;
+    double lm;
+  };
+  auto withLexicon = [&](Hyp& h) {
+    if (lexiconWeight == 0) {
+      h.score = h.lm;
+      return;
+    }
+    const double lex = LexiconScore(lexicon, reading, h.text);
+    // Text the lexicon cannot segment (a character only the model offered with another
+    // reading split) keeps a low but finite score.
+    h.score = h.lm + lexiconWeight * std::log(10.0) * (std::isinf(lex) ? -20.0 * h.text.size() : lex);
+  };
+  auto prune = [beam](std::vector<Hyp>& v) {
+    std::sort(v.begin(), v.end(), [](const Hyp& a, const Hyp& b) { return a.score > b.score; });
+    std::vector<Hyp> kept;
+    for (Hyp& h : v) {
+      if (kept.size() == beam) break;
+      if (std::none_of(kept.begin(), kept.end(), [&](const Hyp& k) { return k.text == h.text; })) {
+        kept.push_back(std::move(h));
+      }
+    }
+    v = std::move(kept);
+  };
+  std::vector<std::vector<Hyp>> beams(n + 1);
+  beams[0].push_back({0, {}, L"", 0, 0});
+  for (size_t i = 0; i < n; ++i) {
+    auto& current = beams[i];
+    if (current.empty()) continue;
+    prune(current);
+    std::vector<std::vector<int>> prefixes;
+    for (const Hyp& h : current) prefixes.push_back(h.tokens);
+    std::vector<std::vector<float>> logProbs;
+    if (!scorer.NextLogProbs(context, prefixes, &logProbs)) return {};
+    for (size_t h = 0; h < current.size(); ++h) {
+      for (const auto& [token, length] : fits[i]) {
+        Hyp next{0, current[h].tokens, current[h].text + tokenTexts[token], current[h].fills,
+                 current[h].lm + logProbs[h][token]};
+        next.tokens.push_back(token);
+        withLexicon(next);
+        beams[i + length].push_back(std::move(next));
+      }
+      // The lexicon fills in characters the model has no single token for.
+      size_t filled = 0;
+      for (const auto& [ch, lexScore] : lexiconChars[i]) {
+        if (filled == 3) break;
+        if (singleTokenChars.count(ch)) continue;
+        ++filled;
+        Hyp next{0, current[h].tokens, current[h].text + ch, current[h].fills + 1,
+                 current[h].lm + lexScore};
+        withLexicon(next);
+        const std::vector<int> pieces = scorer.Tokenize(ToUtf8(std::wstring(1, ch)), false);
+        next.tokens.insert(next.tokens.end(), pieces.begin(), pieces.end());
+        beams[i + 1].push_back(std::move(next));
+      }
+    }
+    // Keep only what the next positions need (each target is pruned when it is expanded).
+    for (size_t j = i + 1; j <= n; ++j) {
+      if (beams[j].size() > 8 * beam) prune(beams[j]);
+    }
+  }
+  auto& final = beams[n];
+  if (final.empty()) return {};
+  for (Hyp& h : final) h.score -= variantPenalty * CountNonTaiwanVariants(h.text);
+  prune(final);
+  return {final[0].text, final[0].fills};
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -121,7 +267,9 @@ int main(int argc, char** argv) {
       {"--laya-file", ""},
       {"--following-chars", "0"},
       {"--batch-layout", "auto"},
-      {"--per-span", "8"},  // as the IME (Ranking.cpp kOptionsPerSpan)
+      {"--per-span", "8"},
+      {"--llm-decode", "0"},
+      {"--decode-lexicon-weight", "0"},  // as the IME (Ranking.cpp kOptionsPerSpan)
   };
   bool useContext = true;
   for (int i = 1; i < argc; ++i) {
@@ -160,6 +308,11 @@ int main(int argc, char** argv) {
   const auto rows = LoadRows(args["--data"], std::stoul(args["--limit"]));
   const size_t k = std::stoul(args["--k"]);
   const size_t followingChars = std::stoul(args["--following-chars"]);
+  const size_t decodeBeam = std::stoul(args["--llm-decode"]);
+  std::vector<std::wstring> tokenTexts;
+  std::unordered_set<wchar_t> singleTokenChars;
+  size_t decodeCorrect = 0, decodeFills = 0, decodeFailed = 0;
+  std::vector<double> decodeMs;
   size_t followingRows = 0;
 
   LlmScorer scorer;
@@ -181,6 +334,12 @@ int main(int argc, char** argv) {
     if (!scorer.Load(options, &error)) {
       fprintf(stderr, "model load failed: %s\n", error.c_str());
       return 1;
+    }
+    if (decodeBeam > 0) {
+      tokenTexts = scorer.TokenTexts();
+      for (const auto& t : tokenTexts) {
+        if (t.size() == 1) singleTokenChars.insert(t[0]);
+      }
     }
     printf("model loaded in %.1f s\n",
            std::chrono::duration<double>(std::chrono::steady_clock::now() - loadStart).count());
@@ -248,6 +407,19 @@ int main(int argc, char** argv) {
       }
       dump << '\n';
     }
+    if (decodeBeam > 0 && useLlm) {
+      const auto start = std::chrono::steady_clock::now();
+      const DecodeResult d = LlmDecode(scorer, lexicon, tokenTexts, singleTokenChars,
+                                       args["--prefix"] + (useContext ? row.context : ""),
+                                       row.reading, decodeBeam, 4.0,
+                                       std::stod(args["--decode-lexicon-weight"]));
+      decodeMs.push_back(
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+      decodeCorrect += d.text == truth;
+      decodeFills += d.fills;
+      decodeFailed += d.text.empty();
+      if (dump) dump << "#decode\t" << row.id << '\t' << ToUtf8(d.text) << '\n';
+    }
     results.push_back(std::move(r));
   }
 
@@ -289,6 +461,11 @@ int main(int argc, char** argv) {
       printf("\n");
     }
     printf("best weight %.2f penalty %.0f -> %.1f%%\n", bestWeight, bestPenalty, 100 * bestAcc / n);
+    if (decodeBeam > 0) {
+      printf("llm-decode beam %zu  sentence %.1f%%  (lexicon fills %zu, failed %zu)  p50 %.1f ms  p95 %.1f ms\n",
+             decodeBeam, 100 * decodeCorrect / n, decodeFills, decodeFailed,
+             Percentile(decodeMs, 0.5), Percentile(decodeMs, 0.95));
+    }
     printf("latency ms  p50 %.1f  p95 %.1f  max %.1f\n", Percentile(latencyMs, 0.5),
            Percentile(latencyMs, 0.95), Percentile(latencyMs, 1.0));
     printf("avg ms: context %.1f  candidates %.1f  softmax %.1f  (batch %.0f tokens, %.0f rows)\n",
