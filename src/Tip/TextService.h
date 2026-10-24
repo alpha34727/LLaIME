@@ -20,6 +20,8 @@ struct ContextChars {
   uint32_t after;
 };
 ContextChars CurrentContextChars();
+// 0-100: how much the language model writes the conversion itself (the settings; 0: ranking).
+uint32_t CurrentLlmWriting();
 
 class CandidateWindow;
 class LangBarButton;
@@ -180,6 +182,7 @@ class TextService final : public ITfTextInputProcessorEx,
   // The document text before and after the composition (contextText_, followingText_).
   void ReadContext(ITfContext* context, TfEditCookie ec, ITfRange* compositionRange);
   void RequestRanking();
+  bool DecodedSentence(const protocol::RankResponse& response, Sentence* out) const;
   // Scores the sentence each open candidate would produce; the results become the
   // probabilities shown in the candidate window. Returns false if no request was sent.
   bool RequestCandidateProbabilities();
@@ -295,6 +298,10 @@ class TextService final : public ITfTextInputProcessorEx,
   uint32_t candidateRequestId_ = 0;
   std::vector<Sentence> candidateSentences_;
   std::vector<int> candidateSentenceIndex_;
+  // The lattice of the last request when the model writes the conversion (empty otherwise),
+  // and the lexicon weight used.
+  std::vector<Node> decodeLattice_;
+  double decodeLexiconWeight_ = 0;
   std::wstring contextText_;    // document text before the composition
   std::wstring followingText_;  // and after it
 

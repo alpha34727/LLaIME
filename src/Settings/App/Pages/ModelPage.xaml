@@ -41,6 +41,16 @@
                    SpinButtonPlacementMode="Inline" Width="140" ValueChanged="Following_Changed" />
       </tk:SettingsCard>
 
+      <tk:SettingsCard x:Name="WritingCard" Header="LLM 寫字比重"
+                       Description="0%：從詞庫組出的候選句中挑最通順的一句（原本的做法）。往右調：改由大語言模型直接寫出符合注音的句子，詞庫的影響隨之減少；50% 在測試中最準，100% 只看模型。長句明顯較準，每多打一個音約多花 20 毫秒。">
+        <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE70F;" /></tk:SettingsCard.HeaderIcon>
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <Slider x:Name="WritingSlider" Minimum="0" Maximum="100" StepFrequency="10" TickFrequency="10"
+                  TickPlacement="BottomRight" SnapsTo="StepValues" Width="220" ValueChanged="Writing_Changed" />
+          <TextBlock x:Name="WritingText" VerticalAlignment="Center" MinWidth="40" />
+        </StackPanel>
+      </tk:SettingsCard>
+
       <tk:SettingsExpander x:Name="ModelExpander" Header="大語言模型" IsExpanded="True"
                            Description="GGUF 格式的因果語言模型。台灣 LoRA 版以台灣正體語料微調，選字較道地。">
         <tk:SettingsExpander.HeaderIcon><FontIcon Glyph="&#xE8F1;" /></tk:SettingsExpander.HeaderIcon>

@@ -9,6 +9,7 @@
 #include <cmath>
 
 #include "EditSession.h"
+#include "llaime/ImeSettings.h"
 #include "llaime/Learning.h"
 #include "llaime/TaiwanUsage.h"
 #include "EngineClient.h"
@@ -32,6 +33,15 @@ constexpr double kLexiconWeight = 0.75;
 constexpr double kVariantPenalty = 4.0;
 // Open candidates at or above this probability are listed by probability.
 constexpr double kRankedProbability = 0.01;
+// With "LLM 寫字比重" above 0 the model writes the conversion over the composer's lattice
+// (LlmDecoder in the engine): this many hypotheses per position, every character of a syllable
+// up to kDecodeChars, kDecodePhrases entries per longer span. The lexicon's weight goes from
+// kMaxDecodeLexiconWeight (1%) to 0 (100%, the model alone); 50% gives the 0.75 that tested
+// best (tests/eval/RESULTS.md).
+constexpr uint32_t kDecodeBeam = 8;
+constexpr size_t kDecodeChars = 200;
+constexpr size_t kDecodePhrases = 16;
+constexpr double kMaxDecodeLexiconWeight = 1.5;
 
 double CombinedScore(double lm, const Sentence& sentence, const Composer& composer,
                      const UserDictionary* user) {
@@ -82,7 +92,55 @@ void TextService::RequestRanking() {
   request.context = privateMode_ ? std::wstring() : contextText_;
   request.following = privateMode_ ? std::wstring() : followingText_;
   for (const Sentence& s : rankedSentences_) request.candidates.push_back(s.Text());
+  // The candidates stay in the request: without a language model (Laya, or still loading) the
+  // engine ranks them instead.
+  decodeLattice_.clear();
+  if (const uint32_t writing = CurrentLlmWriting(); writing > 0) {
+    decodeLattice_ = composer_.Lattice(kDecodeChars, kDecodePhrases);
+    decodeLexiconWeight_ = kMaxDecodeLexiconWeight * (kMaxLlmWriting - writing) / kMaxLlmWriting;
+    request.decodeBeam = kDecodeBeam;
+    request.decodeLexiconWeight = decodeLexiconWeight_;
+    request.elements = static_cast<uint32_t>(composer_.size());
+    request.arcs.reserve(decodeLattice_.size());
+    for (const Node& node : decodeLattice_) {
+      // Pins and punctuation are taken as they are.
+      const bool forced = node.pinned || !composer_.IsReadingSpan(node.start, node.length);
+      request.arcs.push_back({static_cast<uint32_t>(node.start), static_cast<uint32_t>(node.length),
+                              forced, node.score, node.text});
+    }
+  }
   engine_->Submit(std::move(request));
+}
+
+// The conversion the model wrote (RankResponse::paths): the best path after the user's picks
+// and the non-Taiwan-spelling penalty, as a sentence over the lattice sent.
+bool TextService::DecodedSentence(const protocol::RankResponse& response, Sentence* out) const {
+  double best = -1e300;
+  bool found = false;
+  for (const auto& path : response.paths) {
+    Sentence sentence;
+    size_t next = 0;
+    bool ok = true;
+    for (uint32_t a : path.arcs) {
+      if (a >= decodeLattice_.size() || decodeLattice_[a].start != next) {
+        ok = false;
+        break;
+      }
+      sentence.nodes.push_back(decodeLattice_[a]);
+      sentence.score += decodeLattice_[a].score;
+      next += decodeLattice_[a].length;
+    }
+    if (!ok || next != composer_.size()) continue;
+    const double score = path.lm + decodeLexiconWeight_ * std::log(10.0) * path.lexicon -
+                         kVariantPenalty * CountNonTaiwanVariants(sentence.Text()) +
+                         (userDict_ ? LearnedBonus(*userDict_, composer_, sentence.nodes) : 0.0);
+    if (score > best) {
+      best = score;
+      *out = std::move(sentence);
+      found = true;
+    }
+  }
+  return found;
 }
 
 bool TextService::RequestCandidateProbabilities() {
@@ -183,22 +241,28 @@ void TextService::OnRankResponse(const protocol::RankResponse& response) {
     if (response.ok) OnCandidateProbabilities(response);
     return;
   }
-  if (response.requestId != lastRequestId_ || composer_.generation() != rankedGeneration_ ||
-      response.scores.size() != rankedSentences_.size()) {
+  if (response.requestId != lastRequestId_ || composer_.generation() != rankedGeneration_) {
     return;  // the buffer changed since the request
   }
-  size_t best = 0;
-  double bestScore = -1e300;
-  for (size_t i = 0; i < rankedSentences_.size(); ++i) {
-    const double score =
-        CombinedScore(response.scores[i], rankedSentences_[i], composer_, userDict_.get());
-    if (score > bestScore) {
-      bestScore = score;
-      best = i;
+  Sentence chosen;
+  if (!response.paths.empty()) {
+    if (!DecodedSentence(response, &chosen)) return;
+  } else {
+    if (response.scores.size() != rankedSentences_.size()) return;
+    size_t best = 0;
+    double bestScore = -1e300;
+    for (size_t i = 0; i < rankedSentences_.size(); ++i) {
+      const double score =
+          CombinedScore(response.scores[i], rankedSentences_[i], composer_, userDict_.get());
+      if (score > bestScore) {
+        bestScore = score;
+        best = i;
+      }
     }
+    chosen = rankedSentences_[best];
   }
-  if (rankedSentences_[best].Text() == composer_.Text()) return;
-  composer_.SetPreferred(rankedSentences_[best]);
+  if (chosen.Text() == composer_.Text()) return;
+  composer_.SetPreferred(chosen);
   // Leave an open candidate list alone; the new conversion shows once it closes.
   if (CandidatesOpen() || !compositionContext_) return;
   ComPtr<ITfContext> context = compositionContext_;

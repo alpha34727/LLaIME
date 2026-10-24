@@ -13,7 +13,7 @@
 
 namespace llaime::protocol {
 
-inline constexpr uint32_t kVersion = 3;
+inline constexpr uint32_t kVersion = 4;
 
 // String SID of the current process's user, used to name per-user objects.
 inline std::wstring CurrentUserSid() {
@@ -58,12 +58,35 @@ enum class MessageType : uint32_t {
 // Syllables (llaime::Syllable bits) of a reading.
 using Reading = std::vector<uint16_t>;
 
+// A node of the composer's lattice (Composer::Lattice) for the model to write the conversion
+// over: elements [start, start + length) written as `text`, log10 lexicon score.
+struct DecodeArc {
+  uint32_t start = 0;
+  uint32_t length = 0;
+  bool forced = false;  // taken as a whole (a pin, or text not one character per element)
+  double score = 0;
+  std::wstring text;
+};
+
 struct RankRequest {
   uint32_t requestId = 0;
   bool privateMode = false;  // the field is a password / private browsing: nothing may be kept
   std::wstring context;      // text before the composition (may be empty)
   std::wstring following;    // text after the composition (may be empty)
   std::vector<std::wstring> candidates;
+  // With decodeBeam > 0 and a language model loaded, the model writes the conversion itself
+  // over `arcs` (RankResponse::paths); otherwise the candidates are scored.
+  uint32_t decodeBeam = 0;
+  double decodeLexiconWeight = 0;  // weight of the lexicon's log probability against the model's
+  uint32_t elements = 0;
+  std::vector<DecodeArc> arcs;
+};
+
+// A conversion the model wrote: indices into RankRequest::arcs, in order.
+struct DecodePath {
+  std::vector<uint32_t> arcs;
+  double lm = 0;       // natural-log probability of the text (and the following text)
+  double lexicon = 0;  // log10, the lexicon's best segmentation of it (the arcs)
 };
 
 struct RankResponse {
@@ -71,6 +94,7 @@ struct RankResponse {
   bool ok = false;
   std::vector<double> scores;  // natural-log probability per candidate
   uint32_t userVersion = 0;    // current user dictionary version (see UserDictResponse)
+  std::vector<DecodePath> paths;  // when the model wrote the conversion, best first
 };
 
 struct UserDictRequest {
@@ -237,6 +261,17 @@ inline std::vector<uint8_t> Encode(const RankRequest& r) {
   w.Str(r.following);
   w.U32(static_cast<uint32_t>(r.candidates.size()));
   for (const auto& c : r.candidates) w.Str(c);
+  w.U32(r.decodeBeam);
+  w.F64(r.decodeLexiconWeight);
+  w.U32(r.elements);
+  w.U32(static_cast<uint32_t>(r.arcs.size()));
+  for (const auto& a : r.arcs) {
+    w.U32(a.start);
+    w.U32(a.length);
+    w.U32(a.forced ? 1 : 0);
+    w.F64(a.score);
+    w.Str(a.text);
+  }
   return w.bytes();
 }
 
@@ -252,6 +287,20 @@ inline bool Decode(Reader& in, RankRequest* r) {
   for (auto& c : r->candidates) {
     if (!in.Str(&c)) return false;
   }
+  uint32_t arcs = 0;
+  if (!in.U32(&r->decodeBeam) || !in.F64(&r->decodeLexiconWeight) || !in.U32(&r->elements) ||
+      !in.Count(&arcs, 24) || r->decodeBeam > 16 || r->elements > 256) {
+    return false;
+  }
+  r->arcs.resize(arcs);
+  for (auto& a : r->arcs) {
+    uint32_t forced = 0;
+    if (!in.U32(&a.start) || !in.U32(&a.length) || !in.U32(&forced) || !in.F64(&a.score) ||
+        !in.Str(&a.text) || a.length == 0 || a.start + a.length > r->elements) {
+      return false;
+    }
+    a.forced = forced != 0;
+  }
   return true;
 }
 
@@ -262,6 +311,13 @@ inline std::vector<uint8_t> Encode(const RankResponse& r) {
   w.U32(static_cast<uint32_t>(r.scores.size()));
   for (double s : r.scores) w.F64(s);
   w.U32(r.userVersion);
+  w.U32(static_cast<uint32_t>(r.paths.size()));
+  for (const auto& p : r.paths) {
+    w.F64(p.lm);
+    w.F64(p.lexicon);
+    w.U32(static_cast<uint32_t>(p.arcs.size()));
+    for (uint32_t a : p.arcs) w.U32(a);
+  }
   return w.bytes();
 }
 
@@ -273,7 +329,18 @@ inline bool Decode(Reader& in, RankResponse* r) {
   for (double& s : r->scores) {
     if (!in.F64(&s)) return false;
   }
-  return in.U32(&r->userVersion);
+  uint32_t paths = 0;
+  if (!in.U32(&r->userVersion) || !in.Count(&paths, 20) || paths > 16) return false;
+  r->paths.resize(paths);
+  for (auto& p : r->paths) {
+    uint32_t arcs = 0;
+    if (!in.F64(&p.lm) || !in.F64(&p.lexicon) || !in.Count(&arcs, 4)) return false;
+    p.arcs.resize(arcs);
+    for (uint32_t& a : p.arcs) {
+      if (!in.U32(&a)) return false;
+    }
+  }
+  return true;
 }
 
 inline std::vector<uint8_t> EncodeStatusRequest() { return Writer(MessageType::StatusRequest).bytes(); }

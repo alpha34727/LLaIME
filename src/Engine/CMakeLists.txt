@@ -27,7 +27,7 @@ if(NOT llama_FOUND)
   return()
 endif()
 
-add_library(LLaIME.Llm STATIC LlmScorer.cpp)
+add_library(LLaIME.Llm STATIC LlmScorer.cpp LlmDecoder.cpp)
 target_include_directories(LLaIME.Llm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(LLaIME.Llm PUBLIC llama)
 # The log-sum-exp over the vocabulary is the hot loop; let it vectorize.

@@ -239,6 +239,21 @@ std::vector<Sentence> Composer::NBest(size_t k, size_t perSpan) const {
   return out;
 }
 
+std::vector<Node> Composer::Lattice(size_t charOptions, size_t phraseOptions) const {
+  std::vector<Node> lattice;
+  std::vector<Node> options;
+  for (size_t i = 0; i < elements_.size(); ++i) {
+    const size_t maxLen = std::min(Lexicon::kMaxPhraseLength, elements_.size() - i);
+    for (size_t len = 1; len <= maxLen; ++len) {
+      SpanResult r = SpanOptions(i, len, len == 1 ? charOptions : phraseOptions, options);
+      if (r == SpanResult::Stop) break;
+      if (r == SpanResult::Skip) continue;
+      lattice.insert(lattice.end(), options.begin(), options.end());
+    }
+  }
+  return lattice;
+}
+
 void Composer::SetPreferred(const Sentence& sentence) {
   walk_ = sentence.nodes;
   walkValid_ = true;

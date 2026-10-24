@@ -81,6 +81,12 @@ ImeSettings LoadImeSettings() {
   };
   readChars(L"ContextChars", &settings.contextChars);
   readChars(L"FollowingChars", &settings.followingChars);
+  DWORD writing = 0;
+  DWORD size = sizeof(writing);
+  if (RegGetValueW(key, nullptr, L"LlmWriting", RRF_RT_REG_DWORD, nullptr, &writing, &size) ==
+      ERROR_SUCCESS) {
+    settings.llmWriting = writing > kMaxLlmWriting ? kMaxLlmWriting : writing;
+  }
   DWORD generation = 0;
   bytes = sizeof(generation);
   RegGetValueW(key, nullptr, L"Generation", RRF_RT_REG_DWORD, nullptr, &generation, &bytes);
@@ -123,6 +129,9 @@ bool SaveImeSettings(const ImeSettings& settings) {
   };
   ok = ok && setChars(L"ContextChars", settings.contextChars) &&
        setChars(L"FollowingChars", settings.followingChars);
+  const DWORD writing = settings.llmWriting > kMaxLlmWriting ? kMaxLlmWriting : settings.llmWriting;
+  ok = ok && RegSetValueExW(key, L"LlmWriting", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&writing),
+                            sizeof(writing)) == ERROR_SUCCESS;
   // A new value every time, whatever the previous one was (another process may have saved).
   DWORD generation = GetTickCount() | 1;
   if (generation == ReadSettingsGeneration()) generation += 2;

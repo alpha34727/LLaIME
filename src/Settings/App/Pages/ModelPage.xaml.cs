@@ -36,6 +36,8 @@ public sealed partial class ModelPage : Page
         LayaExpander.Description = layaDir_.Length > 0 ? layaDir_ : "尚未設定";
         ContextBox.Value = Native.ContextChars;
         FollowingBox.Value = Native.FollowingChars;
+        WritingSlider.Value = Native.LlmWriting;
+        WritingText.Text = $"{Native.LlmWriting}%";
         ThreadsBox.Value = int.TryParse(Native.ReadEngineSetting("model", "threads"), out var t) ? t : 0;
         DeviceBox.Items.Clear();
         DeviceBox.Items.Add("自動");
@@ -241,6 +243,7 @@ public sealed partial class ModelPage : Page
         ModelExpander.Visibility = ranker is "auto" or "llm" ? Visibility.Visible : Visibility.Collapsed;
         LayaExpander.Visibility = ranker is "auto" or "laya" ? Visibility.Visible : Visibility.Collapsed;
         FollowingCard.Visibility = ModelExpander.Visibility;  // only the language model reads it
+        WritingCard.Visibility = ModelExpander.Visibility;
     }
 
     private void Setting_Changed(object sender, SelectionChangedEventArgs e)
@@ -256,6 +259,14 @@ public sealed partial class ModelPage : Page
     {
         if (double.IsNaN(sender.Value)) sender.Value = 32;
         if (!loading_) Native.ContextChars = (int)sender.Value;
+    }
+
+    // Takes effect at once, like the context lengths.
+    private void Writing_Changed(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        var percent = (int)Math.Round(e.NewValue);
+        WritingText.Text = $"{percent}%";
+        if (!loading_) Native.LlmWriting = percent;
     }
 
     private void Following_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)

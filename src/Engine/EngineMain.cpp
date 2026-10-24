@@ -42,6 +42,7 @@
 #include <vector>
 
 #include "LayaScorer.h"
+#include "LlmDecoder.h"
 #include "LlmScorer.h"
 #include "UserStore.h"
 #include "llaime/Protocol.h"
@@ -276,6 +277,7 @@ class Engine {
       state_ = proto::StatusResponse::Loading;
       {
         std::lock_guard<std::mutex> lock(mutex_);
+        decoder_.reset();
         scorer_ = std::make_unique<LlmScorer>();
         laya_ = std::make_unique<LayaScorer>();
         cache_ = ScoreCache();
@@ -398,9 +400,29 @@ class Engine {
     std::lock_guard<std::mutex> lock(mutex_);
     // Checked under the lock: a reload replaces the rankers while holding it.
     if (!IsLoaded() || rankerName_ == L"none") return proto::Encode(response);
-    if (!request.privateMode && cache_.Get(key, &response.scores)) {
+    const bool decode = request.decodeBeam > 0 && rankerName_ == L"llm" && scorer_->IsLoaded();
+    if (!request.privateMode && !decode && cache_.Get(key, &response.scores)) {
       response.ok = true;
       return proto::Encode(response);
+    }
+    if (decode) {
+      // The model writes the conversion itself (the IME's "LLM 寫字比重" above 0).
+      if (!decoder_) decoder_ = std::make_unique<LlmDecoder>(scorer_.get());
+      std::vector<LlmDecoder::Arc> arcs;
+      arcs.reserve(request.arcs.size());
+      for (const auto& a : request.arcs) arcs.push_back({a.start, a.length, a.forced, a.score, a.text});
+      for (auto& path : decoder_->Decode(kPromptPrefix + ToUtf8(request.context),
+                                         ToUtf8(request.following), request.elements, arcs,
+                                         request.decodeBeam, request.decodeLexiconWeight)) {
+        response.paths.push_back({std::move(path.arcs), path.lm, path.lexicon});
+      }
+      // Nothing typed into a private field stays in the decoder's memory.
+      if (request.privateMode) decoder_->Clear();
+      if (!response.paths.empty()) {
+        response.ok = true;
+        return proto::Encode(response);
+      }
+      // Otherwise the candidates are scored as usual.
     }
     std::vector<std::string> candidates;
     for (const auto& c : request.candidates) candidates.push_back(ToUtf8(c));
@@ -428,6 +450,7 @@ class Engine {
 
  private:
   std::unique_ptr<LlmScorer> scorer_ = std::make_unique<LlmScorer>();
+  std::unique_ptr<LlmDecoder> decoder_;  // made on the first decode request, for scorer_
   std::unique_ptr<LayaScorer> laya_ = std::make_unique<LayaScorer>();
   UserStore store_;
   std::atomic<proto::StatusResponse::State> state_ = proto::StatusResponse::Loading;

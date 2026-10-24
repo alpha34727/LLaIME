@@ -74,6 +74,10 @@ class Composer {
   // The `k` best distinct conversions, considering the `perSpan` best entries of each span.
   // Pins apply as in Walk(). Used to give the language model alternatives to rank.
   std::vector<Sentence> NBest(size_t k, size_t perSpan = 4) const;
+  // Every node a conversion could use: up to `charOptions` characters for each single syllable
+  // and `phraseOptions` entries for each longer span, with pins and literals as in Walk(). For
+  // the language model writing the conversion itself (LlmDecoder).
+  std::vector<Node> Lattice(size_t charOptions, size_t phraseOptions) const;
   std::wstring Text() const;
 
   // Bumped by every edit; a ranking result applies only to the generation it was computed for.

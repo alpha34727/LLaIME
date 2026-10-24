@@ -577,6 +577,17 @@ LLAIME_API int LLaime_SetContextChars(int chars) {
   return Save(settings) ? 1 : 0;
 }
 
+LLAIME_API int LLaime_GetLlmWriting() {
+  return static_cast<int>(LoadImeSettings().llmWriting);
+}
+
+LLAIME_API int LLaime_SetLlmWriting(int percent) {
+  std::lock_guard<std::mutex> lock(B().mutex);
+  ImeSettings settings = LoadImeSettings();
+  settings.llmWriting = static_cast<uint32_t>(percent < 0 ? 0 : percent);
+  return Save(settings) ? 1 : 0;
+}
+
 LLAIME_API int LLaime_GetFollowingChars() {
   return static_cast<int>(LoadImeSettings().followingChars);
 }

@@ -14,6 +14,8 @@ namespace llaime {
 //                                   the ranker as context (0: none)
 //   FollowingChars    REG_DWORD     how many characters after it (0: none; only the language
 //                                   model uses them)
+//   LlmWriting        REG_DWORD     0-100: how much the language model writes the conversion
+//                                   itself rather than ranking the lexicon's best (0: ranking)
 //   Generation        REG_DWORD     changes with every save; TIPs reload when it moves
 // The key and the lexicon folder grant ALL APPLICATION PACKAGES read access, so the TIP works
 // in packaged and UWP apps too. Engine settings (model, device) stay in engine.ini.
@@ -22,6 +24,7 @@ inline constexpr uint32_t kMaxContextChars = 128;
 // Each character after the composition is decoded once per candidate, so the default is short:
 // 8 gets most of what 32 gains (tests/eval/RESULTS.md) at about half the extra latency.
 inline constexpr uint32_t kDefaultFollowingChars = 8;
+inline constexpr uint32_t kMaxLlmWriting = 100;
 
 struct ImeSettings {
   std::vector<std::wstring> disabledLexicons;
@@ -29,6 +32,7 @@ struct ImeSettings {
   std::wstring layout = L"standard";
   uint32_t contextChars = kDefaultContextChars;
   uint32_t followingChars = kDefaultFollowingChars;  // at most kMaxContextChars too
+  uint32_t llmWriting = 0;                           // at most kMaxLlmWriting
   uint32_t generation = 0;
 };
 
